@@ -1,0 +1,8 @@
+{
+  "name": "poweri",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "validate:env": "node --env-file-if-exists=.env scripts/validate-env.mjs"
+  }
+}
