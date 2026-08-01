@@ -22,3 +22,12 @@ coverage/
 
 # PoC 用户数据（per-user PVC 占位）
 data/
+
+# 备份与合并残留
+*.bak
+*.orig
+*.rej
+*.tmp
+
+# K8s 生成 manifests（脚本生成物，不提交）
+deploy/k8s/generated/
