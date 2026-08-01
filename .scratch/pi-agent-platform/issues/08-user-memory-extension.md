@@ -1,13 +1,17 @@
 # 08 — User Memory 扩展 + 存量数据初始化
 
-**What to build:** 一个 pi 扩展，在工作区（该用户 PVC）维护 User Memory 文件，随 agent 执行循环动态读写/注入，使平台越来越懂用户；并实现存量数据初始化：上线时把已有的 Legacy user data（档案/画像/历史记录）按用户一次性、分批、幂等地初始化进其记忆体系，首次运行时加载兜底。
+**What to build:** 一个打包进 Worker 镜像的 pi 扩展（`/poweri/extensions/user-memory.ts`，桥以 `-e` 加载），在工作区 `/workspace/.poweri/memory/`（该用户 PVC）维护三节记忆文件（画像/事实/偏好）；`context` 事件按预算上限截断注入每轮 LLM 上下文；agent 在回合内调用 `remember(section, fact, replace?)` 工具增量写入（零额外模型调用，写前备份到 history/，原子写回）；上线时 `scripts/init-memory.mjs` 把存量数据按用户分批、幂等地初始化进 memory.md（已存在则跳过），首次运行空记忆兜底。
+
+**Design:** docs/design/08-user-memory.md（调研+论证+设计三步定稿）
 
 **Blocked by:** 04 — 会话续接 + 每用户 PVC 挂载
 
 **Status:** ready-for-agent
 
-- [ ] 扩展在工作区读写 memory 文件，跨会话保留且不丢失
-- [ ] memory 在执行过程中被动态注入（不只请求开始一次）
-- [ ] 每用户 memory 与其他用户隔离，不跨用户泄漏
-- [ ] 上线时存量数据分批/幂等初始化进用户记忆
-- [ ] 首次运行时加载作为兜底路径可用
+- [ ] 扩展随镜像打包，桥 `-e` 加载，事件在容器内正常触发（spike 已证）
+- [ ] memory.md 三节结构，跨会话/Pod 保留且不丢失
+- [ ] context 注入：预算内全文 / 超预算保留画像+最近条目，结构完整
+- [ ] remember 工具：三节增/改、幂等去重、事实带日期、history/ 备份、原子写回
+- [ ] 注入含记忆使用规则；turn_end 事件流无额外 LLM 回合（零成本）
+- [ ] 每用户记忆隔离：alice 不出现在 bob 上下文
+- [ ] init-memory.mjs：按用户分批、幂等（已存在跳过），首次运行空记忆兜底
