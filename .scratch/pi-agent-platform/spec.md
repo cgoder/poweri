@@ -81,7 +81,7 @@ Status: ready-for-agent
 - **更新**：不可变 + 锁版本镜像（`@…/pi-coding-agent@<版本>`），滚动替换；容器内 `PI_OFFLINE=1` 关闭自更新与 pi.dev 外呼。
 - **配置/凭据注入**：模型凭据经 secret 管理注入环境变量；自定义 provider/model 走 `models.json`（`apiKey` 支持 `$ENV_VAR` 插值），全局设置走 `settings.json`。
 - **桥协议细节来自调研**：pi RPC 为严格 LF 分隔 JSONL（`docs/rpc.md`），headless 下扩展 UI 经 `extension_ui_request/response` 子协议，TUI 专属方法为 no-op。
-- **User Memory（跨会话用户画像，ADR-0008）**：持久化在每用户 PVC 上的工作区文件，物理隔离、跨会话累积。**机制已定：pi 扩展**——扩展在工作区维护 memory 文件，随 agent 执行循环动态读写/注入，以贴合“提高执行能力与执行过程”的目标；扩展代码打包进每个 Pod 镜像。**设计定稿（docs/design/08-user-memory.md）**：三节记忆（画像/事实/偏好）存 `/workspace/.poweri/memory/`；`context` 事件按 `POWERI_MEMORY_BUDGET`（默认 3000 tokens）上限截断注入；agent 回合内调用 `remember` 工具增量写入（零额外模型调用）；`scripts/init-memory.mjs` 上线时幂等初始化存量数据。
+- **User Memory（跨会话用户画像，ADR-0008）**：持久化在每用户 PVC 上的工作区文件，物理隔离、跨会话累积。**机制已定：pi 扩展**——扩展在工作区维护 memory 文件，随 agent 执行循环动态读写/注入，以贴合“提高执行能力与执行过程”的目标；扩展代码打包进每个 Pod 镜像。**设计定稿（docs/design/08-user-memory.md）**：三节记忆（画像/事实/偏好）存 `/workspace/.poweri/memory/`；`before_provider_request` 按 `POWERI_MEMORY_BUDGET`（默认 3000 tokens）上限截断注入；agent 回合内调用 `remember` 工具增量写入（零额外模型调用）；`scripts/init-memory.mjs` 上线时幂等初始化存量数据。**生态选型定案（ticket 14，实证 `docs/research/pi-memory-deep-research.md`）**：不替换为 pi-memory/hermes——三包注入路径（`before_agent_start` systemPrompt）实证可用，但 pi-memory 会话级 exit summary（每含工具请求 +1 次 LLM，无开关）与 daily 无锁写与平台“每请求一进程 + 跨会话并行”冲突；保留自研 + 移植最佳实践（ticket 18：注入点迁移 before_agent_start / 稳定快照 / 删除恢复 / daily 日志加锁评估）。
 - **存量数据初始化（Legacy user data onboarding）**：平台上线前已有的用户档案/画像/历史使用记录需并入 User Memory。方案：**上线时按用户一次性初始化**到其记忆体系（写入各用户 PVC 的 memory 文件），分批、可重试、幂等；用户首次运行时加载作为兜底。
 - **用量计量 + 账单生成（ADR-0007）**：计量源 = pi RPC 事件的 token/成本 + 平台侧资源/数据指标（CPU/存储/带宽/出站）；聚合入元数据/计量存储；按定价规则生成每用户账单。支付网关不在范围。
 

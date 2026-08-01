@@ -48,9 +48,8 @@
 
 ## 选型建议
 
-- **首选方向：pi-memory 替换自研核心**。理由：与已确认的 4 项决策同构（agent 驱动零额外 LLM、每轮预算内注入、markdown 文件、跨会话持久），且多出 **KV 缓存稳定快照、中截断策略、daily 日志、删除恢复** 等成熟细节；单文件零依赖，镜像适配成本最低。
-  - 适配点：`PI_MEMORY_DIR=/workspace/.poweri/memory`（保留"用户可见"决策，其 MEMORY.md 即原 .poweri/memory/memory.md 语义）；不使用 qmd（无搜索刚需，避免重依赖与 embedding 模型下载）；存量初始化脚本改写为 pi-memory 的条目格式。
-- **次选：保留自研 + 移植其最佳实践**（KV 快照、中截断）——若实证发现 pi-memory 注入在 llsm 网关下失效。
-- **不推荐**：hermes（原生依赖 + 后台 LLM 成本与 10k 平台冲突；除非关闭后台机制且接受 policy-only 搜索模型）；observational（解决长会话压缩，与平台形态错配）。
+> **最终决策（ticket 14，2026-08-01）：保留自研 + 移植最佳实践，不替换。** 深度实证见 `docs/research/pi-memory-deep-research.md`。本文档为初步对比，方向已被实证修正：
 
-> 待用户确认方向后执行：容器内实证（安装 pi-memory → 真实 RPC 链路验证写入与注入）→ 依结果定稿。
+- **pi-memory 注入实证生效**（`before_agent_start` systemPrompt 进入最终负载，容器实测），但其会话级 **exit summary**（每次含工具请求结束 +1 次 LLM，无开关）与平台“每请求一进程”形态结构性冲突；daily 无锁写与跨会话并行冲突 → **不整体替换**，移植其成熟细节（KV 快照、中截断、删除恢复、注入点迁移）至自研（ticket 18）。
+- **hermes**：policy-only 注入模型与自研“预算内全文注入”不同；better-sqlite3 原生依赖 + 后台 review 成本（可关但改变注入模型）→ 不推荐。
+- **observational**：session 内存储，形态错配 → 排除。

@@ -11,7 +11,7 @@
 - **术语表**：`CONTEXT.md`
 - **调研**：`docs/research/`（容器部署 / 容器 PoC / 记忆生态包 / pi-web 视觉多用户验证）
 - **设计**：`docs/design/08-user-memory.md`
-- **执行 ticket**：`.scratch/pi-agent-platform/issues/`（主线 01–13 + K8s 验证 16 + 可视化验证 15 已完成；待办 14 记忆包决策；17 pi-web 网关客户端评估（挂起））
+- **执行 ticket**：`.scratch/pi-agent-platform/issues/`（主线 01–13 + K8s 验证 16 + 可视化验证 15 + 记忆包决策 14 已完成；待办 18 记忆移植最佳实践；17 pi-web 网关客户端评估已定案不做）
 
 ## 仓库结构
 
