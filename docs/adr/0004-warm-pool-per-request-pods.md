@@ -1,0 +1,3 @@
+# Warm-pool worker pods scheduled per request with the user's PVC
+
+Worker pods are scheduled per request and each mounts the requesting user's PVC; they are not literally reused across users. A warm pool of idle, image-pre-warmed pods (plus autoscaling) absorbs scheduling latency so per-request provisioning stays cheap. We chose this because Kubernetes cannot attach a PVC to an already-running pod — a pod's volumes are fixed at creation — so serving a user's request requires a pod created for that user and that PVC. The "shared pool" is therefore a warm buffer of idle pods, not cross-user reuse, preserving the per-user PVC isolation from ADR-0001.
