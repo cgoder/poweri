@@ -167,6 +167,19 @@ function bridgePodStream(wsUrl, message, requestId) {
 const PROVIDER = process.env.POWERI_POD_PROVIDER ?? "fake";
 const BRIDGE_URL = process.env.POWERI_POD_BRIDGE_URL ?? "ws://localhost:8081";
 
+// k8s：真实 K8s（每用户 PVC + Deployment + NodePort Service；PoC 静态映射）
+// POWERI_K8S_USERS="alice:30081;bob:30082"（userId:nodePort）；会话按连接经 WS query 传给桥
+const K8S_USERS = Object.fromEntries(
+  (process.env.POWERI_K8S_USERS ?? "").split(";").filter(Boolean)
+    .map((p) => { const [u, port] = p.split(":"); return [u, port?.trim()]; })
+);
+function k8sBridgeUrl(userId, sessionId) {
+  const port = K8S_USERS[userId];
+  if (!port) throw new Error(`k8s 无该用户映射: ${userId}（POWERI_K8S_USERS）`);
+  const host = process.env.POWERI_K8S_NODE_HOST ?? "127.0.0.1";
+  return `ws://${host}:${port}/?session=${encodeURIComponent(SESSION_FILE_CONTAINER(sessionId))}`;
+}
+
 // 路由入口：统一返回 Promise<{ stream: AsyncIterable<object>, abort: () => void }>
 // requestId：贯穿链路（client→网关→桥 prompt id→pi response id），供 trace 关联
 export async function streamPod(userId, sessionId, message, requestId) {
@@ -175,5 +188,6 @@ export async function streamPod(userId, sessionId, message, requestId) {
     return bridgePodStream(wsUrl, message, requestId);
   }
   if (PROVIDER === "bridge") return bridgePodStream(BRIDGE_URL, message, requestId);
+  if (PROVIDER === "k8s") return bridgePodStream(k8sBridgeUrl(userId, sessionId), message, requestId);
   return fakePodStream(userId, sessionId, message);
 }

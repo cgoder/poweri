@@ -47,3 +47,22 @@ spec:
       resource: { name: memory, target: { type: Utilization, averageUtilization: 80 } }
 ```
 Pod 无粘性（无 StatefulSet 固定身份）：任何副本可服务任何用户，会话状态在 per-user PVC + 元数据存储（ADR-0001/0003）。
+
+## K8s 真实环境验证（ticket 16，已实测通过）
+
+OrbStack K8s v1.34.8 + local-path StorageClass（动态 PVC）。**pi-sandbox:local 镜像 OrbStack K8s 直接可拉**（共享镜像存储）。
+
+```bash
+# 1. 启用 OrbStack K8s（首次）
+orb config set k8s.enable true && orb stop && orb start
+
+# 2. 部署：ConfigMap 播种配置 + 每用户 PVC/Deployment/NodePort
+node scripts/gen-k8s.mjs alice,bob     # nodePort 30081/30082 起
+
+# 3. 网关接入 k8s provider 验证
+node scripts/verify-k8s.mjs            # 多用户隔离 / 会话落 PVC / Pod 重建续接
+```
+
+- 会话路径经 WS query 传给桥（常驻 Pod 按连接指定，覆盖启动 env）
+- initContainer chown 1000:1000 保证 piuser 写 PVC（root 建目录会 EACCES）
+- 每用户常驻 Pod 为 PoC 形态；生产 = 温池 + HPA（见上）+ NetworkPolicy（networkpolicy.yaml）
