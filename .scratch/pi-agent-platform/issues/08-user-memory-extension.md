@@ -8,6 +8,8 @@
 
 **Status:** ready-for-agent
 
+> ⚠️ **选型挂起**：本实现为占位方案。生态包深度调研与替换决策见 ticket 14（`docs/research/pi-memory-extensions.md` 初步对比）。
+
 - [x] 扩展随镜像打包，桥 `-e` 加载，事件在容器内正常触发（spike 已证）
 - [ ] memory.md 三节结构，跨会话/Pod 保留且不丢失
 - [ ] context 注入：预算内全文 / 超预算保留画像+最近条目，结构完整
