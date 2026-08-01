@@ -1,7 +1,7 @@
 // ticket 06 集成验证：流式转发 + 长/短连接 + abort + 断线重连历史补发
 // Part A（fake 主测试缝）：WS 长连接多轮 / abort 提前中断 / busy 拒绝
 // Part B（docker + 真实 pi）：WS 一轮 + 历史接口补发 + 重连续接
-// 运行：node scripts/verify-06.mjs（需 docker + pi-sandbox:local 镜像 + 已配置的 AI 网关）
+// 运行：node scripts/verify-06.mjs（需 docker + poweri-worker:local 镜像 + 已配置的 AI 网关）
 
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";

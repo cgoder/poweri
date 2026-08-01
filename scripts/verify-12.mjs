@@ -1,5 +1,5 @@
 // ticket 12 验证：不可变 + 锁版本镜像升级/回滚，会话跨版本兼容
-// 1. v1 镜像（pi-sandbox:local）跑真实会话写数据
+// 1. v1 镜像（poweri-worker:local）跑真实会话写数据
 // 2. 构建 v2（BUILD_MARKER=v2, tag poweri-worker:test-v2），验证镜像内版本标记
 // 3. 切 v2 镜像续接同会话（跨版本会话兼容）
 // 4. 回滚 v1 镜像再续接（可回滚）
@@ -15,7 +15,7 @@ import path from "node:path";
 const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "p12-"));
 const GW_PORT = 18091;
 const BASE = `http://127.0.0.1:${GW_PORT}`;
-const V1 = "pi-sandbox:local";
+const V1 = "poweri-worker:local";
 const V2 = "poweri-worker:test-v2";
 
 const docker = (args, opts = {}) => {

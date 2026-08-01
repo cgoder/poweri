@@ -105,7 +105,7 @@ async function partC() {
   console.log("── C: 桥就绪探针（get_state）──");
   const name = "p11-bridge";
   try { execFileSync("docker", ["rm", "-f", name], { stdio: "ignore" }); } catch {}
-  const port = execFileSync("docker", ["run", "-d", "--rm", "--name", name, "-p", "127.0.0.1::8081", "--entrypoint", "node", "pi-sandbox:local", "/bridge/server.mjs"], { encoding: "utf8" }).trim();
+  const port = execFileSync("docker", ["run", "-d", "--rm", "--name", name, "-p", "127.0.0.1::8081", "--entrypoint", "node", "poweri-worker:local", "/bridge/server.mjs"], { encoding: "utf8" }).trim();
   try {
     const hp = execFileSync("docker", ["port", name, "8081"], { encoding: "utf8" }).trim().split("->").pop().trim();
     const ws = new WebSocket(`ws://${hp}`);

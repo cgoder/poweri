@@ -1,6 +1,6 @@
 // 生成并应用 K8s 资源（ticket 16 PoC：每用户 PVC + worker Deployment + NodePort Service）
 // 用法：node scripts/gen-k8s.mjs [alice,bob,...]   （默认 alice,bob；nodePort 从 30081 起）
-// 前置：OrbStack K8s 已启用；pi-sandbox:local 镜像可拉（OrbStack 共享镜像）；宿主 ~/.pi/agent 有 gen-pi-config 生成的 models.json/settings.json
+// 前置：OrbStack K8s 已启用；poweri-worker:local 镜像可拉（OrbStack 共享镜像）；宿主 ~/.pi/agent 有 gen-pi-config 生成的 models.json/settings.json
 // 配置播种：ConfigMap 由宿主配置生成，initContainer 复制进各用户 PVC（每用户隔离副本，可各自在界面改）
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -10,7 +10,7 @@ import path from "node:path";
 const users = (process.argv[2] ?? "alice,bob").split(",").map((s) => s.trim()).filter(Boolean);
 const NODE_PORT_BASE = 30081;
 const NS = "poweri";
-const IMAGE = process.env.POWERI_POD_IMAGE ?? "pi-sandbox:local";
+const IMAGE = process.env.POWERI_POD_IMAGE ?? "poweri-worker:local";
 const MODEL = process.env.POWERI_AI_MODEL ?? "agent";
 const CONFIG_SRC = path.join(homedir(), ".pi", "agent");
 

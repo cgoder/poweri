@@ -1,6 +1,6 @@
 # PowerI Worker 沙箱镜像：单 Node 运行时
 # 容器内只用 Node：pi 本身是 Node，后续 skills/扩展也在 Node 里跑；桥也用 Node（唯一依赖 ws）。
-# 构建（上下文=仓库根）：docker build -f deploy/docker/Dockerfile.pi -t pi-sandbox:local .
+# 构建（上下文=仓库根）：docker build -f deploy/docker/Dockerfile.pi -t poweri-worker:local .
 
 FROM node:24-bookworm-slim
 

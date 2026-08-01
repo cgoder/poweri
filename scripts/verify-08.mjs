@@ -47,7 +47,7 @@ async function partA() {
   const cfg = fs.mkdtempSync(path.join(os.tmpdir(), "p08cfg-"));
   fs.cpSync(path.join(os.homedir(), ".pi", "agent"), cfg, { recursive: true });
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), "p08a-"));
-  const run = (prompt) => dockerRun(["run", "--rm", "-v", `${cfg}:/home/piuser/.pi/agent`, "-v", `${ws}:/workspace`, "pi-sandbox:local", "-e", "/poweri/extensions/user-memory.mjs", "-p", prompt]);
+  const run = (prompt) => dockerRun(["run", "--rm", "-v", `${cfg}:/home/piuser/.pi/agent`, "-v", `${ws}:/workspace`, "poweri-worker:local", "-e", "/poweri/extensions/user-memory.mjs", "-p", prompt]);
   // 1. 让 agent 调 remember 写偏好
   const out1 = run("调用 remember 工具，preferences 节记录：回复要中文且简洁");
   assert(out1.includes("已记入") || out1.length > 0, "PartA-1 请求完成");

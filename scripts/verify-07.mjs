@@ -3,7 +3,7 @@
 // B 资源限额生效（inspect + 内存 OOM 实测）
 // C 网络影响面（无侦察工具；模型 API 正向可达；仅暴露桥端口）
 // D 挂载隔离（用户目录互不可见）
-// 运行：node scripts/verify-07.mjs（需 docker + pi-sandbox:local 镜像）
+// 运行：node scripts/verify-07.mjs（需 docker + poweri-worker:local 镜像）
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -11,7 +11,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const IMG = "pi-sandbox:local";
+const IMG = "poweri-worker:local";
 const docker = (args, opts = {}) => {
   try { return execFileSync("docker", args, { encoding: "utf8", ...opts }).trim(); }
   catch (e) { if (opts.allowFail) return ""; throw e; }

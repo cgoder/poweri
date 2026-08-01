@@ -50,7 +50,7 @@ Pod 无粘性（无 StatefulSet 固定身份）：任何副本可服务任何用
 
 ## K8s 真实环境验证（ticket 16，已实测通过）
 
-OrbStack K8s v1.34.8 + local-path StorageClass（动态 PVC）。**pi-sandbox:local 镜像 OrbStack K8s 直接可拉**（共享镜像存储）。
+OrbStack K8s v1.34.8 + local-path StorageClass（动态 PVC）。**poweri-worker:local 镜像 OrbStack K8s 直接可拉**（共享镜像存储）。
 
 ```bash
 # 1. 启用 OrbStack K8s（首次）

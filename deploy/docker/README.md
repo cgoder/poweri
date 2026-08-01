@@ -10,11 +10,11 @@ Worker Pod 的基础镜像。基于官方 `docs/containerization.md` 的 "Plain 
 ## 构建与运行
 
 ```bash
-docker build -t pi-sandbox -f Dockerfile.pi .
+docker build -t poweri-worker:local -f Dockerfile.pi .
 # 一次性（print 模式）
-docker run --rm -e ANTHROPIC_API_KEY=$KEY -v "$PWD:/workspace" pi-sandbox -p "Hello"
+docker run --rm -e ANTHROPIC_API_KEY=$KEY -v "$PWD:/workspace" poweri-worker:local -p "Hello"
 # 长驻 headless（RPC，供桥驱动）
-docker run --rm -i -e ANTHROPIC_API_KEY=$KEY pi-sandbox --mode rpc --no-session
+docker run --rm -i -e ANTHROPIC_API_KEY=$KEY poweri-worker:local --mode rpc --no-session
 ```
 
 > 生产：凭据经 secret 管理注入环境变量，不要写进镜像。自定义 provider/model 走 `models.json`（`apiKey` 支持 `$ENV_VAR` 插值）。

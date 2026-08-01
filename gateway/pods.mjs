@@ -36,7 +36,7 @@ function seedUser(userId) {
 }
 
 // ── docker：按请求调度/复用容器（PoC 版 K8s Pod 调度）───────────────────
-const POD_IMAGE = process.env.POWERI_POD_IMAGE ?? "pi-sandbox:local";
+const POD_IMAGE = process.env.POWERI_POD_IMAGE ?? "poweri-worker:local";
 // 资源限额（ticket 07 容器级隔离）：默认 1 CPU / 512MB / 128 pids，可经 env 覆盖
 // K8s 正式形态 = deploy/k8s/ 的 resources.limits + NetworkPolicy（docker 层无 egress 白名单）
 const POD_CPUS = process.env.POWERI_POD_CPUS ?? "1";

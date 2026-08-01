@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately
 
-**Status:** done（pi-sandbox:local 镜像构建并验证：node:24-bookworm-slim + pi@0.83.0 锁版本 + 非 root piuser + PI_OFFLINE=1 + 桥与记忆扩展打包；Node 单运行时 512MB）
+**Status:** done（poweri-worker:local 镜像构建并验证（更名前为 pi-sandbox:local）：node:24-bookworm-slim + pi@0.83.0 锁版本 + 非 root piuser + PI_OFFLINE=1 + 桥与记忆扩展打包；Node 单运行时 512MB）
 
 - [ ] `docker run` 该镜像后执行 `pi -p "<问题>"` 能返回模型输出
 - [ ] 镜像内 pi 版本被锁定（可复现构建）

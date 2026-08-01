@@ -52,7 +52,7 @@ for (let i = 0; i < 3; i++) {
   const name = `p10-cold-${i}`;
   docker(["rm", "-f", name], { allowFail: true, stdio: "ignore" });
   const t0 = Date.now();
-  docker(["run", "-d", "--rm", "--name", name, "-p", "127.0.0.1::8081", "--entrypoint", "node", "pi-sandbox:local", "/bridge/server.mjs"], { stdio: "ignore" });
+  docker(["run", "-d", "--rm", "--name", name, "-p", "127.0.0.1::8081", "--entrypoint", "node", "poweri-worker:local", "/bridge/server.mjs"], { stdio: "ignore" });
   let port = "";
   for (let j = 0; j < 60; j++) {
     try { port = docker(["port", name, "8081"]).split("->").pop().trim(); if (port) break; } catch {}
