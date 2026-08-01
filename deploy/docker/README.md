@@ -49,3 +49,15 @@ node scripts/verify-15.mjs
 关键点：`PI_CODING_AGENT_DIR=/home/piuser/.pi/agent`（会话+配置一体挂载）；`PI_WEB_PASSWORD` 每实例独立 Basic Auth（username 恒为 pi）。
 
 > **实证（2026-08）**：pi 0.83 经 SessionManager 把会话写在 `sessions/<slug>/<时间戳>_<sessionId>.jsonl`（嵌套+前缀）——pi-web 侧按此规范布局；与网关 `--session <path>` 显式指定的顶层 `sessions/<id>.jsonl` 不同，互不影响。
+
+## Gateway 镜像（ticket 19）
+
+无状态网关层（认证/路由/计量/账单）的容器形态，构建：
+
+```bash
+node scripts/build-gateway.mjs    # → poweri-gateway:local（约 150MB，node:24-bookworm-slim + 仅 ws 依赖）
+```
+
+- 多阶段：依赖层 `npm install --omit=dev`（锁 ws@^8.18），运行时层只拷 `gateway/*.mjs`（不含 test/node_modules）
+- 非 root（内置 `node` 用户 uid 1000）；数据目录默认 `cwd/data`，镜像内预建并授权
+- 部署：K8s Deployment + PVC + NodePort（`scripts/gen-k8s.mjs`，见 `deploy/k8s/README.md`）；密钥经 Secret 注入（`POWERI_GATEWAY_USERS`、worker 侧 `POWERI_AI_API_KEY`）

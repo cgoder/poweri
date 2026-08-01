@@ -77,14 +77,14 @@
 3. **自研已满足核心需求**：预算内注入、remember 零额外写入、物理隔离、跨会话持久、存量幂等初始化——verify-08 A/B/C 全部通过；注入路径已实证（E1）。
 4. **生态经验可移植，成本低**：均为小模块，不引入新依赖。
 
-### 移植清单（后续迭代，新 ticket）
+### 移植清单（已由 ticket 18 执行完毕，2026-08-01）
 
-- [ ] **注入点迁移**：`before_provider_request` → `before_agent_start` systemPrompt（生态标准，实证可用，代码更干净）
-- [ ] **中截断策略对齐**：分节截断（画像全保留 + 事实/偏好最近条目），对齐 pi-memory 的 `formatContextSection` 思路
-- [ ] **daily 日志**：按日累积 + 今日/昨日注入——**平台形态必须加锁/合并写**（跨会话并行安全）
-- [ ] **删除恢复**：`memory_forget` 写 recovery 记录（pi-memory `recovery/<id>.json` 模式）
-- [ ] **稳定快照**：记忆文件未变则不重组装注入（字节稳定，前缀缓存友好）
-- [ ] **KV 快照刷新时机**：对齐 pi-memory checkpoints 理念
+- [x] **注入点迁移**：`before_provider_request` → `before_agent_start` systemPrompt（T18 已迁，生态标准路径，实证进入最终负载）
+- [x] **中截断策略对齐**：分节截断（画像全保留 + 事实/偏好最近条目）——现有实现已对齐，T18 确认无需改动
+- [x] **daily 日志**：**评估后不做**（平台每请求一进程 + 跨会话并行，无锁写风险 > 收益；三节记忆 + 事实日期前缀已覆盖“今日上下文”）
+- [x] **删除恢复**：T18 实现——`remember replace=true` 覆盖时旧行记 `recovery/<ts>-<section>.json`，`memory_restore` 工具恢复
+- [x] **稳定快照**：T18 确认平台形态字节天然稳定（每请求一进程 + before_agent_start 每回合一次），无需进程内缓存
+- [x] **KV 快照刷新时机**：同上，不适用（无进程内缓存），已记入设计文档 4.3
 
 ### 不推荐项（复述）
 

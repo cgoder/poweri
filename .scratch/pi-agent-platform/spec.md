@@ -113,4 +113,4 @@ Status: ready-for-agent
 - 待定细节：同一用户跨会话并行时，若两个会话触碰同一工作区文件，可能产生文件级竞争（用户侧行为，非数据损坏）；可在实现时决定是否加更细粒度锁。
 - 桥是每个 Pod 内唯一的自有代码，应保持最小并独立可测。
 - 会话存储目录若与工作区分离，可用 `PI_CODING_AGENT_SESSION_DIR` 指向独立可写卷。
-- **User Memory 实现选型待定（决策挂起）**：ticket 08 已按自研 pi 扩展实现并验证（`1ed52d7`，机制：remember 工具零额外 LLM 写入 + `before_provider_request` 预算截断注入）。调研发现 pi 生态存在更成熟包（pi-memory 0.4.0 与自研同构且多出 KV 缓存稳定快照/daily 日志/删除恢复；hermes 0.9.2 功能最全但有原生依赖与后台 LLM 成本；observational 3.0.3 解决长会话压缩、形态错配）。**结论：不在此处定案**，见 `docs/research/pi-memory-extensions.md`，后续单独 deep research（ticket 14）后再决定是否以包替换/移植。
+- **User Memory 实现选型（已定案，见上）**：ticket 08 按自研 pi 扩展实现（`1ed52d7`，机制：remember 工具零额外 LLM 写入 + `before_provider_request` 预算截断注入）。调研发现 pi 生态存在更成熟包（pi-memory 0.4.0 与自研同构且多出 KV 缓存稳定快照/daily 日志/删除恢复；hermes 0.9.2 功能最全但有原生依赖与后台 LLM 成本；observational 3.0.3 解决长会话压缩、形态错配）。**定案（2026-08-01，ticket 14）**：保留自研 + 移植最佳实践（ticket 18 已完成：注入点迁移 `before_agent_start` / 删除恢复 / 稳定快照确认 / daily 日志评估不做）；实证见 `docs/research/pi-memory-deep-research.md`。

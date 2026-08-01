@@ -19,8 +19,8 @@
 gateway/           无状态网关：认证/路由/会话续接/并发串行/流式转发(SSE+WS)/计量/计价/账单/日志
 bridge/            每个 Worker Pod 内的 stdio↔WebSocket 桥（每连接一个 pi --mode rpc 子进程）
 memory-extension/  User Memory pi 扩展（remember 工具 + 预算注入，随执行循环读写）
-deploy/            docker 镜像（poweri-worker + poweri-piweb）+ k8s manifests（每用户 PVC/Deployment/NodePort、NetworkPolicy）
-scripts/           构建(build-image/build-piweb)/配置生成(gen-pi-config)/K8s 部署(gen-k8s)/pi-web 编排(run-piweb)/验证(verify-05~12、verify-15、verify-k8s)
+deploy/            docker 镜像（poweri-worker + poweri-gateway + poweri-piweb）+ k8s manifests（每用户 PVC/Deployment/NodePort、NetworkPolicy、gateway 部署）+ config/pi 平台配置目录
+scripts/           构建(build-image/build-gateway/build-piweb)/配置生成(gen-pi-config)/K8s 部署(gen-k8s)/pi-web 编排(run-piweb)/验证(verify-05~12、verify-15、verify-19、verify-k8s)
 docs/              ADR / design / research / agents
 data/              PoC 数据目录（每用户 PVC 占位，已 gitignore）
 ```
@@ -38,9 +38,12 @@ node scripts/build-image.mjs   # → poweri-worker:local
 node --test gateway/test/      # 网关单测
 node scripts/verify-06.mjs B   # docker + 真实 pi 全链路（流式/续接/隔离）
 # 4. K8s：每用户 PVC + worker Deployment + NodePort 真实部署验证
-node scripts/gen-k8s.mjs alice,bob   # ConfigMap 播种 + 资源部署
+node scripts/gen-k8s.mjs alice,bob   # ConfigMap 播种 + Secret 注入（密钥不进 ConfigMap）
 node scripts/verify-k8s.mjs          # 多用户隔离 / 会话落 PVC / Pod 重建续接
-# 5. pi-web 可视化多用户（ticket 15）：每测试用户一个 Web UI 实例
+# 5. 生产形态（ticket 19）：gateway 也进 K8s + 密钥 Secret 化全链路
+node scripts/build-gateway.mjs       # → poweri-gateway:local
+node scripts/verify-19.mjs alice     # 部署 gateway+worker、ConfigMap 无明文密钥、真实模型回复
+# 6. pi-web 可视化多用户（ticket 15）：每测试用户一个 Web UI 实例
 node scripts/build-piweb.mjs         # → poweri-piweb:local
 node scripts/run-piweb.mjs start alice,bob   # 浏览器打开 http://127.0.0.1:30141…（用户名 pi）
 node scripts/verify-15.mjs           # 认证/数据隔离/并发/重启续接/配置隔离
