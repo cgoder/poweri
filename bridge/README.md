@@ -2,7 +2,7 @@
 
 每个 Worker Pod 内的小 shim：把 `pi --mode rpc` 子进程的 stdin/stdout JSONL 协议暴露为一个 WebSocket 端点，供网关网络驱动。
 
-- **实现**：`server.mjs`（Bun 原生 WebSocket server + `spawn`，零第三方依赖）
+- **实现**：`server.mjs`（Node + `ws`，唯一第三方依赖；容器内单 Node 运行时，因 pi 与 skills 均依赖 Node）
 - **模型**：每个 WS 连接对应一个独立 `pi --mode rpc` 子进程（进程隔离，连接关闭即 kill）
 - **映射**：WS 消息 → pi stdin（一条命令一行）；pi stdout 的 JSONL 事件流 → WS 逐行转发
 - **帧**：严格 LF 分隔（勿用 Node readline，会把 U+2028/29 当换行）
@@ -10,13 +10,14 @@
 
 ## 运行
 ```bash
-# 容器内（需 bun + pi + 挂载配置）
-bun /bridge/server.mjs
-# 读取 .env：POWERI_BRIDGE_PORT(默认8081) / POWERI_AI_MODEL
+# 容器内（镜像已内置 /bridge + ws）
+node /bridge/server.mjs
+# 读取 env：POWERI_BRIDGE_PORT(默认8081) / POWERI_AI_MODEL
 ```
 
 ## 测试
 ```bash
+# 宿主机客户端（Bun 原生 WebSocket，无需安装依赖）
 bun run bridge/test-client.mjs [ws://host:port] ["提示词"]
 # 流程：连接 → get_state(探针) → prompt → 流式收事件 → isStreaming=false 后取最终文本
 ```
