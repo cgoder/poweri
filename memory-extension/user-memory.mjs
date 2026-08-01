@@ -4,7 +4,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { Type } from "typebox";
-import { ensureMemoryFile, parseSections, applyRemember, truncateInjection, buildInjection } from "./memory-core.mjs";
+import { ensureMemoryFile, parseSections, applyRemember, applyRecover, truncateInjection, buildInjection } from "./memory-core.mjs";
 
 const MEMORY_DIR = process.env.POWERI_MEMORY_DIR || path.join(process.cwd(), ".poweri", "memory");
 const BUDGET_TOKENS = Number(process.env.POWERI_MEMORY_BUDGET || 3000);
@@ -32,6 +32,20 @@ function writeMemory(file, content) {
   fs.renameSync(tmp, file);
 }
 
+/** 覆盖发生时写 recovery 记录（防误覆盖；由 memory_restore 恢复） */
+function recordRecovery({ section, oldLine, newLine }) {
+  try {
+    const d = path.join(MEMORY_DIR, "recovery");
+    fs.mkdirSync(d, { recursive: true });
+    fs.writeFileSync(
+      path.join(d, `${Date.now()}-${section}.json`),
+      JSON.stringify({ ts: new Date().toISOString(), section, oldLine, newLine }, null, 2)
+    );
+  } catch (e) {
+    log("recovery 记录失败:", e.message);
+  }
+}
+
 export default function userMemoryExtension(pi) {
   let memoryFile = null;
 
@@ -40,21 +54,17 @@ export default function userMemoryExtension(pi) {
     log(`memory ready: ${memoryFile} (budget=${BUDGET_TOKENS}t)`);
   });
 
-  // 注入点（实证结论）：context 事件改消息不会进入最终 provider 负载；
-  // 新增 system 消息会触发 llsm 网关的 developer 角色位置校验 400。
-  // 唯一可靠路径：before_provider_request 把记忆块追加到首位 system/developer 消息。
-  pi.on("before_provider_request", async (event) => {
-    const msgs = event.payload?.messages;
-    if (!Array.isArray(msgs) || !msgs.length) return undefined;
-    const first = msgs[0];
-    if ((first.role !== "system" && first.role !== "developer") || typeof first.content !== "string") return undefined;
-    if (first.content.includes(MARKER)) return undefined; // 多轮/工具调用时多次触发，幂等
+  // 注入点（T18 移植）：before_agent_start 修改 event.systemPrompt —— 生态标准路径（pi-memory/hermes 同路径，
+  // T14 实证进入最终 provider 负载）。每 agent 回合触发一次（工具续轮不重复）→ 回合内 remember 写入下一请求生效，
+  // 语义正确；同内容注入字节确定（前缀缓存友好）。
+  pi.on("before_agent_start", async (event) => {
+    if (typeof event.systemPrompt !== "string") return undefined;
+    if (event.systemPrompt.includes(MARKER)) return undefined; // 幂等兜底（防扩展重复加载）
     if (!memoryFile) memoryFile = ensureMemoryFile(MEMORY_DIR);
     const content = fs.existsSync(memoryFile) ? fs.readFileSync(memoryFile, "utf8") : "";
     const sec = parseSections(content);
     const hasContent = sec.profile.length || sec.facts.length || sec.preferences.length;
-    first.content += "\n\n" + buildInjection(truncateInjection(content, BUDGET_CHARS), !hasContent);
-    return undefined; // 原地修改生效
+    return { systemPrompt: event.systemPrompt + "\n\n" + buildInjection(truncateInjection(content, BUDGET_CHARS), !hasContent) };
   });
 
   // 写路径：agent 回合内调用（零额外模型调用）
@@ -70,10 +80,43 @@ export default function userMemoryExtension(pi) {
       if (!memoryFile) memoryFile = ensureMemoryFile(MEMORY_DIR);
       const content = fs.readFileSync(memoryFile, "utf8");
       const res = applyRemember(content, { section: params.section, fact: params.fact, replace: !!params.replace }, today());
-      if (res.changed) writeMemory(memoryFile, res.content);
+      if (res.changed) {
+        writeMemory(memoryFile, res.content);
+        if (res.replaced) recordRecovery(res.replaced); // 覆盖发生时留恢复记录（防误覆盖）
+      }
       return {
         content: [{ type: "text", text: res.changed ? `已记入 ${params.section}：${params.fact}` : `未写入（${res.reason}）` }],
         details: { changed: res.changed, reason: res.reason, section: params.section, memoryFile },
+      };
+    },
+  });
+
+  // 恢复被 remember replace=true 覆盖的旧行（recovery 记录，见 recordRecovery）
+  pi.registerTool({
+    name: "memory_restore",
+    description: "恢复被 remember replace=true 覆盖的旧记忆条目（recovery 记录）。不传 id 恢复最近一条；id 为 recovery 目录中的记录文件名（不含 .json）。",
+    parameters: Type.Object({ id: Type.Optional(Type.String()) }),
+    async execute(toolCallId, params) {
+      if (!memoryFile) memoryFile = ensureMemoryFile(MEMORY_DIR);
+      const recDir = path.join(MEMORY_DIR, "recovery");
+      if (!fs.existsSync(recDir)) return { content: [{ type: "text", text: "无恢复记录（recovery 目录不存在）" }] };
+      const files = fs.readdirSync(recDir).filter((f) => f.endsWith(".json")).sort();
+      const target = params.id ? files.find((f) => f.startsWith(params.id)) : files.at(-1);
+      if (!target) return { content: [{ type: "text", text: `未找到恢复记录（id=${params.id ?? "最近一条"}）` }] };
+      let entry;
+      try {
+        entry = JSON.parse(fs.readFileSync(path.join(recDir, target), "utf8"));
+      } catch {
+        return { content: [{ type: "text", text: `恢复记录损坏: ${target}` }] };
+      }
+      const res = applyRecover(fs.readFileSync(memoryFile, "utf8"), entry);
+      if (res.changed) {
+        writeMemory(memoryFile, res.content);
+        fs.unlinkSync(path.join(recDir, target)); // 已恢复的记录移除，防重复恢复
+      }
+      return {
+        content: [{ type: "text", text: res.changed ? `已恢复 ${entry.section}：${entry.oldLine}` : `未恢复（${res.reason}）` }],
+        details: { changed: res.changed, reason: res.reason, section: entry.section, oldLine: entry.oldLine, record: target },
       };
     },
   });

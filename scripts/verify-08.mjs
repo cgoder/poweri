@@ -40,6 +40,19 @@ function cleanupPods() {
 }
 function dockerRun(args) { return execFileSync("docker", args, { encoding: "utf8" }); }
 
+// 环境前提（Part B 全链路）：gateway seedUser 从宿主 ~/.pi/agent 拷贝 models.json，桥硬编码 --model poweri-gw/<model>，
+// 故宿主配置必须含 poweri-gw provider（由 scripts/gen-pi-config.mjs 生成：POWERI_AI_BASE_URL/API_KEY/MODEL）。
+// 缺失时 pi 在桥内启动即报 Model not found（静默空响应），这里提前检测并跳过 Part B。
+function hostConfigMissingPoweriGw() {
+  const cfg = path.join(os.homedir(), ".pi", "agent", "models.json");
+  if (!fs.existsSync(cfg)) return `宿主配置缺失: ${cfg}`;
+  try {
+    return JSON.parse(fs.readFileSync(cfg, "utf8")).providers?.["poweri-gw"] ? null : `宿主 ${cfg} 缺少 poweri-gw provider`;
+  } catch (e) {
+    return `宿主 ${cfg} 解析失败: ${e.message}`;
+  }
+}
+
 // ══════════ Part A: 容器级 remember + 跨进程注入（print 模式） ══════════
 async function partA() {
   console.log("── Part A: 容器级扩展（print 模式）──");
@@ -63,6 +76,11 @@ async function partA() {
 // ══════════ Part B: 全链路 gateway + docker ══════════
 async function partB() {
   console.log("── Part B: 全链路（gateway + docker provider + 真实 pi）──");
+  const cfgIssue = hostConfigMissingPoweriGw();
+  if (cfgIssue) {
+    console.log(`⚠ Part B 跳过：${cfgIssue}。运行 scripts/gen-pi-config.mjs（需 POWERI_AI_BASE_URL/API_KEY/MODEL）后重跑。`);
+    return;
+  }
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "p08b-"));
   const gw = startGateway({
     POWERI_GATEWAY_PORT: "18081",

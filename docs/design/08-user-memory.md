@@ -10,7 +10,7 @@
 ## 2. 实证基础（调研结论，一手资料 + spike）
 
 - **扩展在容器内可用**：pi 0.83.0，`--extension/-e <path>` 加载；RPC 模式 `ctx.mode="rpc"`、`ctx.hasUI=true`（对话框/通知走 JSON 协议），扩展事件在 headless 下完整触发。
-- **注入点**：`context` 事件——每次 LLM 调用前触发，`event.messages` 为深拷贝可安全修改，返回 `{messages}` 生效。
+- **注入点**：`before_agent_start` 修改 `event.systemPrompt`（生态标准路径，T14 实证进入最终负载；详见 4.3）。
 - **写入点**：`turn_end`（本回合消息+工具结果）、`agent_settled`（整轮结束，`ctx.isIdle()=true`）。
 - **持久化**：扩展可用 `node:fs` 写 `/workspace`（= 每用户 PVC 挂载点），跨进程/跨会话保留。
 - **spike 实测**（memory-probe.ts，沙箱容器）：
@@ -52,7 +52,8 @@
 
 ### 4.3 读路径（注入）
 
-- **实证结论（重要修正）**：pi 0.83.0 的 `context` 事件修改 `event.messages` **不会进入最终 provider 负载**（实测 payload 只有 pi 自身 developer + user 两条）；向 payload 新增一条 `system` 消息会触发 llsm 网关的 developer 角色位置校验 400。**唯一可靠路径**：`before_provider_request` 把记忆块**追加到首位 system/developer 消息内容**（不新增消息、不动角色顺序）。
+- **注入点（T18 定稿）**：`before_agent_start` 修改 `event.systemPrompt`（生态标准路径——pi-memory/hermes 同路径，T14 实证该返回值进入最终 provider 负载）。每 agent 回合触发一次（工具调用续轮不重复触发）→ 天然无累积、回合内写入下一请求生效；同内容注入字节确定（前缀缓存友好）。
+- **演进历程**（避免回退）：① 初版 `context` 事件改 messages → 实测不进入最终负载；② 改用 `before_provider_request` 追加首位消息（可生效，但依赖 MARKER 幂等防多轮重复）；③ T18 迁移到 `before_agent_start`（更干净，`MARKER` 仅作扩展重复加载兜底）。
 - 注入内容：
   ```
   ## User Memory（持久记忆，跨会话保留；来自用户自己的记忆文件）
@@ -61,9 +62,10 @@
   当用户透露持续性信息（身份/偏好/决定/项目进展）时，调用 remember 工具记入对应节；
   寒暄、瞬时指令、已答问题不要记；同义事实用 replace 去重。
   ```
-- 幂等：`MARKER`（`## User Memory（持久记忆`）已在首位消息中则跳过——多轮/工具调用会多次触发 `before_provider_request`，防重复追加。
+- 幂等：`MARKER`（`## User Memory（持久记忆`）已在 systemPrompt 中则跳过（防扩展重复加载）。
 - 预算：`POWERI_MEMORY_BUDGET`（默认 3000 tokens，按 chars≈tokens×4 估算，可调）。
 - 超预算截断：**保留 `## 画像` 全部 + 事实/偏好各取最近条目**（先裁最旧），保持 markdown 结构完整。
+- 稳定快照：平台每请求一进程 + `before_agent_start` 每回合一次 → 注入字节由 memory.md 内容决定，内容未变则字节稳定（前缀缓存友好），无需进程内快照缓存。
 - 空 memory.md（新用户）：注入"记忆为空"占位，让 agent 知道体系存在但不强行注入。
 
 ### 4.4 写路径（remember 工具，零额外模型调用）
@@ -73,6 +75,7 @@
   - `fact`: 一事一行
   - `replace`: true = 替换同前缀行（去重更新）
 - 执行逻辑：读 memory.md → 更新对应节 → 旧内容备份到 `history/` → 原子写回（tmp+rename）。
+- **误覆盖恢复（T18）**：`replace=true` 覆盖旧行时，旧行写入 `memory/recovery/<ts>-<section>.json`（含 section/oldLine/newLine/ts）；`memory_restore` 工具按 id（或最近一条）恢复旧行并移除记录。
 - 事实自动加 `[YYYY-MM-DD]` 前缀（容器本地日期）；identical fact 幂等跳过。
 - **为什么不是 agent_settled 后 LLM 摘要**：回合后另发一次 LLM 调用做摘要 = 每回合模型成本翻倍（10k 用户规模不可接受）。改为 **agent 在回合内直接调用 remember 工具写入**——复用本回合已发生的模型推理，零额外调用；效果上就是"每回合增量写"（Q2 的等价实现）。代价：依赖 agent 自觉调用，用注入指令+工具定义约束。
 

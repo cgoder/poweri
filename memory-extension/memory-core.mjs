@@ -56,7 +56,7 @@ export function renderMemory(sections) {
 const stripDate = (s) => s.replace(/^(?:-\s*)?\[?\d{4}-\d{2}-\d{2}\]?\s*/, "").trim();
 const norm = (s) => stripDate(s).replace(/^-/, "").trim();
 
-/** 应用一次 remember：追加/替换某节的一行。返回 { content, changed, reason } */
+/** 应用一次 remember：追加/替换某节的一行。返回 { content, changed, reason, replaced? }（replaced=覆盖发生时被替换的旧行，供写 recovery 记录） */
 export function applyRemember(content, { section, fact, replace = false }, date) {
   const key = SECTION_HEADERS[section];
   if (!key) return { content, changed: false, reason: `unknown section: ${section}` };
@@ -69,17 +69,36 @@ export function applyRemember(content, { section, fact, replace = false }, date)
   const bare = norm(line);
   if (!replace && items.some((l) => norm(l) === bare)) return { content, changed: false, reason: "duplicate" };
 
+  let replaced;
   if (replace) {
     // 替换同内容行（忽略日期前缀与行首符号）
     const idx = items.findIndex((l) => norm(l) === bare);
-    if (idx >= 0) items[idx] = line;
-    else items.push(line);
+    if (idx >= 0) {
+      replaced = { section, oldLine: items[idx], newLine: line };
+      items[idx] = line;
+    } else {
+      items.push(line);
+    }
   } else {
     items.push(line);
   }
   // 有真实内容后清掉占位行
   const cleaned = items.filter((l) => l.trim() !== EMPTY_LINE);
-  return { content: renderMemory({ ...sections, [section]: cleaned }), changed: true, reason: "ok" };
+  return { content: renderMemory({ ...sections, [section]: cleaned }), changed: true, reason: "ok", replaced };
+}
+
+/** 恢复被覆盖/删除的旧行（recovery 记录）。entry: { section, oldLine }。返回 { content, changed, reason } */
+export function applyRecover(content, entry) {
+  const key = SECTION_HEADERS[entry?.section];
+  if (!key) return { content, changed: false, reason: `unknown section: ${entry?.section}` };
+  const oldLine = String(entry.oldLine ?? "").trim();
+  if (!oldLine) return { content, changed: false, reason: "empty oldLine" };
+  const sections = parseSections(content);
+  const items = sections[entry.section];
+  if (items.some((l) => l.trim() === oldLine.trim())) return { content, changed: false, reason: "already present" };
+  items.push(oldLine);
+  const cleaned = items.filter((l) => l.trim() !== EMPTY_LINE);
+  return { content: renderMemory({ ...sections, [entry.section]: cleaned }), changed: true, reason: "ok" };
 }
 
 /**

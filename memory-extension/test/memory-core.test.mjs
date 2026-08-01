@@ -8,6 +8,7 @@ import {
   parseSections,
   renderMemory,
   applyRemember,
+  applyRecover,
   truncateInjection,
   buildInjection,
   estimateTokens,
@@ -97,5 +98,34 @@ test("注入块含记忆+使用规则；空记忆有占位", () => {
 test("estimateTokens 粗略换算", () => {
   assert.equal(estimateTokens("abcd"), 1);
   assert.equal(estimateTokens(""), 0);
+});
+
+test("remember replace 覆盖（facts 新日期）暴露 replaced；applyRecover 恢复旧版本且防重复", () => {
+  // r1：facts 追加（无旧行可覆盖）
+  const r1 = applyRemember(TEMPLATE, { section: "facts", fact: "完成了 A 模块", replace: true }, "2026-08-01");
+  assert.equal(r1.changed, true);
+  assert.equal(r1.replaced, undefined);
+
+  // r2：同事实新日期 replace → 覆盖旧版本，暴露 replaced
+  const r2 = applyRemember(r1.content, { section: "facts", fact: "完成了 A 模块", replace: true }, "2026-08-02");
+  assert.equal(r2.changed, true);
+  assert.ok(r2.replaced, "覆盖发生时应有 replaced");
+  assert.equal(r2.replaced.section, "facts");
+  assert.equal(r2.replaced.oldLine, "- [2026-08-01] 完成了 A 模块"); // 文件中的行（带 - 与日期）
+  assert.equal(r2.replaced.newLine, "[2026-08-02] 完成了 A 模块"); // 工具入参原始行（无前缀）
+  assert.ok(!r2.content.includes("[2026-08-01]"), "旧版本行已被替换移除");
+
+  // 恢复：旧版本加回，与新版本并存
+  const rec = applyRecover(r2.content, { section: "facts", oldLine: r2.replaced.oldLine });
+  assert.equal(rec.changed, true);
+  assert.ok(rec.content.includes("- [2026-08-01] 完成了 A 模块"));
+  assert.ok(rec.content.includes("- [2026-08-02] 完成了 A 模块"));
+  // 重复恢复被拒
+  const again = applyRecover(rec.content, { section: "facts", oldLine: r2.replaced.oldLine });
+  assert.equal(again.changed, false);
+  assert.equal(again.reason, "already present");
+  // 非法 section / 空 oldLine 拒绝
+  assert.equal(applyRecover(r2.content, { section: "nope", oldLine: "x" }).changed, false);
+  assert.equal(applyRecover(r2.content, { section: "facts", oldLine: "  " }).changed, false);
 });
 
