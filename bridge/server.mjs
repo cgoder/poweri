@@ -11,7 +11,12 @@ import { WebSocketServer } from "ws";
 
 const PORT = Number(process.env.POWERI_BRIDGE_PORT ?? 8081);
 const MODEL = (process.env.POWERI_AI_MODEL ?? "").trim();
-const piArgs = ["--mode", "rpc", ...(MODEL ? ["--model", `poweri-gw/${MODEL}`] : [])];
+const SESSION = (process.env.POWERI_SESSION_PATH ?? "").trim();
+const piArgs = [
+  "--mode", "rpc",
+  ...(MODEL ? ["--model", `poweri-gw/${MODEL}`] : []),
+  ...(SESSION ? ["--session", SESSION] : []),
+];
 
 // 把字节流按 LF 切成完整 JSONL 行。
 // 协议规定仅以 \n 分隔（勿用 Node readline，它会把 U+2028/29 也当换行）。

@@ -19,3 +19,6 @@ auth.json
 # 本地工具产物
 coverage/
 .tmp/
+
+# PoC 用户数据（per-user PVC 占位）
+data/

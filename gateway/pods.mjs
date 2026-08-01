@@ -1,15 +1,95 @@
-// PowerI Pod 提供者：把请求路由到能处理该 session 的 Pod，产出一条事件流。
-// Pod 抽象 = stream(session, message) → AsyncIterable<object>（上游事件）。
+// PowerI Pod 提供者：把请求路由到能处理该 (userId, sessionId) 的 Pod，产出一条事件流。
+// Pod 抽象 = stream(userId, sessionId, message) → AsyncIterable<object>（上游事件）。
 // 实现：
 //   fake   — 内存假 Pod（主测试缝，无真实 pi）
-//   bridge — 经 WS 连真实 Worker Pod 的桥（可切换到真实 Pod 验证）
-// 选型：POWERI_POD_PROVIDER=fake|bridge，POWERI_POD_BRIDGE_URL=ws://host:port
+//   bridge — 经 WS 连单个已运行桥（快速链路调试）
+//   docker — 按请求调度一个容器：挂载该用户数据目录（PoC 版 per-user PVC）+ 会话文件
+// 选型：POWERI_POD_PROVIDER=fake|bridge|docker
 
+import { execFileSync } from "node:child_process";
+import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import path from "node:path";
 import { WebSocket } from "ws";
+import { DATA_DIR } from "./store.mjs";
 
-// ── fake：内存假 Pod ──────────────────────────────────
-export function fakePodStream(session, message) {
-  const reply = `(fake)[${session}] echo: ${message}`;
+// ── 用户数据目录（PoC 的 per-user PVC 占位；生产为 K8s PVC 挂载点）─────────
+export const userDir = (userId) => path.join(DATA_DIR, "users", userId);
+export const userPiDir = (userId) => path.join(userDir(userId), ".pi", "agent");
+export const userWorkspaceDir = (userId) => path.join(userDir(userId), "workspace");
+export const sessionFileHost = (userId, sessionId) => path.join(userPiDir(userId), "sessions", `${sessionId}.jsonl`);
+export const SESSION_FILE_CONTAINER = (sessionId) => `/home/piuser/.pi/agent/sessions/${sessionId}.jsonl`;
+
+const HOST_PI_CONFIG = path.join(homedir(), ".pi", "agent"); // 已由 gen-pi-config 生成
+
+// 首次使用：建用户目录 + 播种 pi 配置（models/settings，来自宿主生成的配置）
+function seedUser(userId) {
+  const piDir = userPiDir(userId);
+  if (!existsSync(path.join(piDir, "models.json"))) {
+    mkdirSync(path.join(piDir, "sessions"), { recursive: true });
+    for (const f of ["models.json", "settings.json"]) {
+      const src = path.join(HOST_PI_CONFIG, f);
+      if (existsSync(src)) copyFileSync(src, path.join(piDir, f));
+    }
+  }
+  mkdirSync(userWorkspaceDir(userId), { recursive: true });
+}
+
+// ── docker：按请求调度/复用容器（PoC 版 K8s Pod 调度）───────────────────
+const POD_IMAGE = process.env.POWERI_POD_IMAGE ?? "pi-sandbox:local";
+
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+// WS 连接带重试：容器端口映射先于内部进程就绪，首次请求需等待桥监听
+async function connectWs(url) {
+  for (let i = 0; i < 20; i++) {
+    try {
+      const ws = new WebSocket(url);
+      await new Promise((res, rej) => { ws.once("open", res); ws.once("error", rej); });
+      return ws;
+    } catch {
+      await sleep(500);
+    }
+  }
+  throw new Error(`WS 连接失败: ${url}`);
+}
+
+function containerPort(name) {
+  const out = execFileSync("docker", ["port", name, "8081"], { encoding: "utf8" }).trim();
+  // 兼容两种输出："8081/tcp -> 127.0.0.1:32768" 或 "127.0.0.1:32768"
+  const hp = out.split("\n")[0].split("->").pop()?.trim();
+  if (!hp) throw new Error(`no port for ${name}`);
+  return `ws://${hp}`;
+}
+
+async function ensureBridgePod(userId, sessionId) {
+  seedUser(userId);
+  const name = `poweri-${userId}-${sessionId.slice(0, 8)}`;
+  // 已有容器（上次请求留下的）→ 直接复用，会话文件已在 PVC 上
+  try {
+    const existing = execFileSync("docker", ["ps", "--filter", `name=^/${name}$`, "--format", "{{.Names}}"], { encoding: "utf8" }).trim();
+    if (existing) return containerPort(name);
+  } catch {}
+  execFileSync("docker", ["run", "-d", "--rm", "--name", name,
+    "-v", `${userPiDir(userId)}:/home/piuser/.pi/agent`,
+    "-v", `${userWorkspaceDir(userId)}:/workspace`,
+    "-e", `POWERI_AI_MODEL=${process.env.POWERI_AI_MODEL ?? "agent"}`,
+    "-e", `POWERI_SESSION_PATH=${SESSION_FILE_CONTAINER(sessionId)}`,
+    "-p", "127.0.0.1::8081",
+    "--entrypoint", "node",
+    POD_IMAGE,
+    "/bridge/server.mjs",
+  ], { stdio: "ignore" });
+  for (let i = 0; i < 30; i++) {
+    try { return containerPort(name); } catch {}
+    await sleep(500);
+  }
+  throw new Error(`bridge pod ${name} 端口未就绪`);
+}
+
+// ── fake：内存假 Pod（主测试缝；echo 里带 user/session 以便断言路由）──────
+export function fakePodStream(userId, sessionId, message) {
+  const reply = `(fake)[${userId}/${sessionId}] echo: ${message}`;
   return (async function* () {
     yield { type: "agent_start" };
     yield { type: "turn_start" };
@@ -21,7 +101,7 @@ export function fakePodStream(session, message) {
   })();
 }
 
-// ── WS → 事件异步迭代器（逐条 JSONL）──────────────────
+// ── WS → 事件异步迭代器（逐条 JSONL）─────────────────────────────────
 function wsEvents(ws) {
   let buf = [], wake = null;
   ws.on("message", (d) => {
@@ -38,11 +118,9 @@ function wsEvents(ws) {
   })();
 }
 
-// ── bridge：连真实桥 ──────────────────────────────────
-export function bridgePodStream(wsUrl, session, message) {
+function bridgePodStream(wsUrl, message) {
   return (async function* () {
-    const ws = new WebSocket(wsUrl);
-    await new Promise((res, rej) => { ws.once("open", res); ws.once("error", rej); });
+    const ws = await connectWs(wsUrl);
     ws.send(JSON.stringify({ id: "g-chat", type: "prompt", message }));
     const it = wsEvents(ws);
     for await (const ev of it) {
@@ -53,11 +131,15 @@ export function bridgePodStream(wsUrl, session, message) {
   })();
 }
 
-// ── 路由入口 ──────────────────────────────────────────
+// ── 路由入口 ─────────────────────────────────────────────────────────
 const PROVIDER = process.env.POWERI_POD_PROVIDER ?? "fake";
 const BRIDGE_URL = process.env.POWERI_POD_BRIDGE_URL ?? "ws://localhost:8081";
 
-export function streamPod(session, message) {
-  if (PROVIDER === "bridge") return bridgePodStream(BRIDGE_URL, session, message);
-  return fakePodStream(session, message);
+export async function streamPod(userId, sessionId, message) {
+  if (PROVIDER === "docker") {
+    const wsUrl = await ensureBridgePod(userId, sessionId);
+    return bridgePodStream(wsUrl, message);
+  }
+  if (PROVIDER === "bridge") return bridgePodStream(BRIDGE_URL, message);
+  return fakePodStream(userId, sessionId, message);
 }
