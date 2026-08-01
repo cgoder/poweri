@@ -1,6 +1,8 @@
-# Poweri — pi 万人 Agent 平台
+# PowerI — 派内核的 Agent 平台
 
-基于 [pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) 的多租户 Agent 平台（约 1 万用户），生产级容器部署。网关路由请求到容器化的 Worker Pod，每用户数据独立 PVC 强隔离。
+基于 [pi-coding-agent](https://github.com/earendil-works/pi-coding-agent)（派）的多租户 Agent 平台（约 1 万用户），生产级容器部署。网关路由请求到容器化的 Worker Pod，每用户数据独立 PVC 强隔离。
+
+**命名由来**：业务产品名 **Power**，用**派（pi）**替换其内核作为 Agent 智能体内核——**Power + PI = PowerI**。
 
 ## 文档索引
 
