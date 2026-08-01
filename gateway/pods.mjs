@@ -89,17 +89,23 @@ async function ensureBridgePod(userId, sessionId) {
 
 // ── fake：内存假 Pod（主测试缝；echo 里带 user/session 以便断言路由）──────
 // POWERI_FAKE_DELAY_MS>0 时在回复前睡眠，让并发串行/并行在时序上可观测
+// POWERI_FAKE_USAGE="input/output/cacheRead/cacheWrite/reasoning" 注入确定性 usage（计量测试）
 const FAKE_DELAY = Number(process.env.POWERI_FAKE_DELAY_MS ?? 0);
+const _fu = (process.env.POWERI_FAKE_USAGE ?? "").split("/").map(Number);
+const FAKE_USAGE = _fu.length === 5 && _fu.every((n) => !Number.isNaN(n))
+  ? { input: _fu[0], output: _fu[1], cacheRead: _fu[2], cacheWrite: _fu[3], reasoning: _fu[4], totalTokens: _fu[0] + _fu[1] }
+  : null;
 
 export function fakePodStream(userId, sessionId, message) {
   const reply = `(fake)[${userId}/${sessionId}] echo: ${message}`;
+  const content = [{ type: "text", text: reply }];
   return (async function* () {
     yield { type: "agent_start" };
     yield { type: "turn_start" };
     yield { type: "message_start", message: { role: "assistant" } };
     if (FAKE_DELAY > 0) await sleep(FAKE_DELAY);
-    yield { type: "message_update", message: { role: "assistant", content: [{ type: "text", text: reply }] } };
-    yield { type: "message_end", message: { role: "assistant", content: [{ type: "text", text: reply }] } };
+    yield { type: "message_update", message: { role: "assistant", content } };
+    yield { type: "message_end", message: { role: "assistant", content, usage: FAKE_USAGE } };
     yield { type: "turn_end" };
     yield { type: "agent_end" };
   })();

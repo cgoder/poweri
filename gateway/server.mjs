@@ -12,12 +12,15 @@
 //   POWERI_GATEWAY_PORT / POWERI_GATEWAY_USERS("alice:token-a;bob:token-b") / POWERI_POD_PROVIDER
 
 import { createServer } from "node:http";
+import { randomUUID } from "node:crypto";
 import { getLastSession, newSessionId, setLastSession } from "./store.mjs";
 import { streamPod } from "./pods.mjs";
 import { withLock } from "./queue.mjs";
+import { appendUsage, invoiceFor, scanUsage } from "./metering.mjs";
 
 const PORT = Number(process.env.POWERI_GATEWAY_PORT ?? 8080);
 const USERS = parseUsers(process.env.POWERI_GATEWAY_USERS ?? "alice:dev-token");
+const ADMIN_TOKEN = process.env.POWERI_GATEWAY_ADMIN_TOKEN ?? "admin-token";
 
 function parseUsers(s) {
   const map = {};
@@ -32,6 +35,21 @@ function userFromReq(req) {
   const h = req.headers.authorization || "";
   if (!h.startsWith("Bearer ")) return null;
   return USERS[h.slice(7)] ?? null;
+}
+
+function isAdmin(req) {
+  return (req.headers.authorization || "") === `Bearer ${ADMIN_TOKEN}`;
+}
+
+async function readJson(req) {
+  let body = "";
+  for await (const chunk of req) body += chunk;
+  return JSON.parse(body || "{}");
+}
+
+function sendJson(res, status, obj) {
+  res.writeHead(status, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(obj));
 }
 
 // 会话解析：返回 (sessionId, 是否新建)
@@ -60,12 +78,9 @@ const server = createServer(async (req, res) => {
       res.end(JSON.stringify({ error: "unauthorized" }));
       return;
     }
-    let body = "";
-    for await (const chunk of req) body += chunk;
-    let { session, message } = JSON.parse(body || "{}");
+    let { session, message } = await readJson(req);
     if (!message) {
-      res.writeHead(400, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "message required" }));
+      sendJson(res, 400, { error: "message required" });
       return;
     }
 
@@ -80,25 +95,67 @@ const server = createServer(async (req, res) => {
     res.write(`event: ready\ndata: {"sessionId":"${sessionId}","isNew":${isNew},"userId":"${userId}"}\n\n`);
     // 会话级串行（ADR-0005）：同一 (userId, sessionId) 一次只放一个 in-flight，其余排队。
     // 客户端断开时仍继续消费上游流：让 pi 完成本回合，保证会话 JSONL 完整不损坏。
-    try {
-      await withLock(`${userId}/${sessionId}`, async () => {
+    // 同时按请求聚合计量（ADR-0006）：assistant message_end 的 usage 累加 + 平台指标。
+    await withLock(`${userId}/${sessionId}`, async () => {
+      const t0 = Date.now();
+      let usageAgg = null, bytesOut = 0, ok = true;
+      try {
         for await (const ev of await streamPod(userId, sessionId, message)) {
-          try {
-            res.write(`data: ${JSON.stringify(ev)}\n\n`);
-          } catch {
-            // 对端已断开：忽略写入错误，继续消费直至回合结束
+          if (ev?.type === "message_end" && ev.message?.role === "assistant" && ev.message.usage) {
+            usageAgg = usageAgg ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 0 };
+            for (const k of ["input", "output", "cacheRead", "cacheWrite", "reasoning", "totalTokens"]) {
+              usageAgg[k] += Number(ev.message.usage[k]) || 0;
+            }
           }
+          const s = `data: ${JSON.stringify(ev)}\n\n`;
+          bytesOut += s.length;
+          try { res.write(s); } catch { /* 对端断开：继续消费直至回合结束 */ }
         }
+      } catch (e) {
+        ok = false;
+        try { res.write(`event: error\ndata: ${JSON.stringify({ error: String(e?.message ?? e) })}\n\n`); } catch {}
+      }
+      appendUsage(userId, {
+        ts: Date.now(),
+        requestId: `${sessionId}-${randomUUID().slice(0, 8)}`,
+        sessionId, ok,
+        usage: usageAgg,
+        platform: { durationMs: Date.now() - t0, bandwidthBytes: bytesOut },
       });
-    } catch (e) {
-      try { res.write(`event: error\ndata: ${JSON.stringify({ error: String(e?.message ?? e) })}\n\n`); } catch {}
-    }
+    });
     try { res.write("event: done\ndata: {}\n\n"); res.end(); } catch {}
     return;
   }
 
-  res.writeHead(404, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ error: "not found" }));
+  if (url.pathname === "/v1/admin/usage" && req.method === "GET") {
+    if (!isAdmin(req)) { sendJson(res, 401, { error: "unauthorized" }); return; }
+    const userId = url.searchParams.get("userId");
+    if (!userId) { sendJson(res, 400, { error: "userId required" }); return; }
+    const from = Number(url.searchParams.get("from") ?? -Infinity);
+    const to = Number(url.searchParams.get("to") ?? Infinity);
+    sendJson(res, 200, scanUsage(userId, from, to));
+    return;
+  }
+
+  if (url.pathname === "/v1/admin/invoice" && req.method === "GET") {
+    if (!isAdmin(req)) { sendJson(res, 401, { error: "unauthorized" }); return; }
+    const { userId, period } = Object.fromEntries(url.searchParams);
+    if (!userId || !period) { sendJson(res, 400, { error: "userId and period required" }); return; }
+    const { invoice, reused } = await invoiceFor(userId, period);
+    sendJson(res, 200, { reused, ...invoice });
+    return;
+  }
+
+  if (url.pathname === "/v1/admin/invoice" && req.method === "POST") {
+    if (!isAdmin(req)) { sendJson(res, 401, { error: "unauthorized" }); return; }
+    const { userId, period } = await readJson(req);
+    if (!userId || !period) { sendJson(res, 400, { error: "userId and period required" }); return; }
+    const { invoice, reused } = await invoiceFor(userId, period);
+    sendJson(res, 200, { reused, ...invoice });
+    return;
+  }
+
+  sendJson(res, 404, { error: "not found" });
 });
 
 server.listen(PORT, () => console.error(`[gateway] listening on :${PORT}  users=${Object.values(USERS).join(",")}  provider=${process.env.POWERI_POD_PROVIDER ?? "fake"}`));

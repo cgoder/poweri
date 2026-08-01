@@ -5,7 +5,8 @@
   "scripts": {
     "validate:env": "bun scripts/validate-env.mjs",
     "gen:pi-config": "bun scripts/gen-pi-config.mjs",
-    "test:queue": "node --test \"gateway/test/*.test.mjs\"",
-    "verify:05": "node scripts/verify-05.mjs"
+    "test:unit": "node --test \"gateway/test/*.test.mjs\"",
+    "verify:05": "node scripts/verify-05.mjs",
+    "verify:09": "node scripts/verify-09.mjs"
   }
 }
