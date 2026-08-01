@@ -12,6 +12,10 @@ RUN apt-get update \
 ARG PI_VERSION=0.83.0
 RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent@${PI_VERSION}
 
+# 镜像内版本标记（升级验证用；默认空不影响）
+ARG BUILD_MARKER=""
+RUN echo "poweri-worker ${BUILD_MARKER}" > /etc/poweri-version
+
 # 桥：Node + ws（单运行时原则）
 COPY bridge/ /bridge/
 RUN cd /bridge && npm install --omit=dev --ignore-scripts
