@@ -1,3 +1,7 @@
+# PowerI Worker 沙箱镜像：单 Node 运行时
+# 容器内只用 Node：pi 本身是 Node，后续 skills/扩展也在 Node 里跑；桥也用 Node（唯一依赖 ws）。
+# 构建（上下文=仓库根）：docker build -f deploy/docker/Dockerfile.pi -t pi-sandbox:local .
+
 FROM node:24-bookworm-slim
 
 RUN apt-get update \
@@ -8,8 +12,9 @@ RUN apt-get update \
 ARG PI_VERSION=0.83.0
 RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent@${PI_VERSION}
 
-# bun：stdio↔WebSocket 桥的运行时（pi 本身是 node，桥用 bun）
-RUN npm install -g bun
+# 桥：Node + ws（单运行时原则）
+COPY bridge/ /bridge/
+RUN cd /bridge && npm install --omit=dev --ignore-scripts
 
 # 非 root 运行（收窄被注入工具的影响面）
 RUN useradd --create-home --shell /bin/bash piuser
