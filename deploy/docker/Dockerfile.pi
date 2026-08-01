@@ -1,0 +1,20 @@
+FROM node:24-bookworm-slim
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends bash ca-certificates git ripgrep \
+  && rm -rf /var/lib/apt/lists/*
+
+# 锁版本安装 pi（可复现构建）
+ARG PI_VERSION=0.83.0
+RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent@${PI_VERSION}
+
+# 非 root 运行（收窄被注入工具的影响面）
+RUN useradd --create-home --shell /bin/bash piuser
+USER piuser
+ENV HOME=/home/piuser
+
+# 关闭启动外呼（版本检查/telemetry/pi.dev）
+ENV PI_OFFLINE=1
+
+WORKDIR /workspace
+ENTRYPOINT ["pi"]
