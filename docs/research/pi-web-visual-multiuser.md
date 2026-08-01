@@ -2,6 +2,7 @@
 
 > 需求：为"真实环境多用户/多租户并发实践"提供一个可视化交互界面——多人在测试环境各自操作、观察并发行为。候选承载项目：`@agegr/pi-web`（github.com/agegr/pi-web）。
 > 调研时间：2026-08-01。版本 pi-web 0.8.6（MIT，无 Dockerfile）。
+> **落地状态（2026-08-01）**：方案 A 已实现并通过 verify-15（见 ticket 15）；本页为选型依据与实证补充。
 
 ## pi-web 是什么
 
@@ -51,4 +52,11 @@ pi 的本地 Web UI（Next.js 16）：会话浏览/续接/分叉、实时聊天�
 
 ## 待办（ticket 15）
 
-见 `.scratch/pi-agent-platform/issues/15-pi-web-visual-multiuser.md`。
+见 `.scratch/pi-agent-platform/issues/15-pi-web-visual-multiuser.md`（已 done）。
+
+## 实证补充（2026-08-01，源码 + 真实链路）
+
+- **API 形态**：`POST /api/agent/new` body 需带 `type:"ensure_session"` 才只建运行时返回 sessionId；`POST /api/agent/[id]` 的 `prompt` 为 **fire-and-forget**（立即返回 `{success:true,data:null}`），回合事件走 `GET /api/agent/[id]/events` 的 SSE，结束事件为 `prompt_done`。就绪探针：`POST /api/agent/[id]` + `get_state`（轮询 `model` 出现且 `isStreaming=false`）。
+- **会话布局**：pi 0.83 经 SessionManager 把会话写在 `sessions/<slug>/<时间戳>_<sessionId>.jsonl`（嵌套 + 前缀，slug 由 cwd 派生）。pi-web 侧按其规范布局即可；平台网关用 `--session <path>` 显式指定顶层 `sessions/<id>.jsonl`，两条路径互不影响。
+- **配置联动**：`GET/PUT /api/models-config` 原子写回 `PI_CODING_AGENT_DIR/models.json`（同 pi 配置），界面改模型/thinking 即写回该用户 PVC——已用 verify-15 Part E 验证隔离。
+- **资源**：镜像 1.11GB（next 16 + pi 0.83 依赖树），与 worker 镜像同基底；npm 包内含 `.next` 构建产物，无需运行时构建。
