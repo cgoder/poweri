@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "validate:env": "node --env-file-if-exists=.env scripts/validate-env.mjs"
+    "validate:env": "node --env-file-if-exists=.env scripts/validate-env.mjs",
+    "gen:pi-config": "node --env-file-if-exists=.env scripts/gen-pi-config.mjs"
   }
 }
