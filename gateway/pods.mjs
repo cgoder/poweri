@@ -88,12 +88,16 @@ async function ensureBridgePod(userId, sessionId) {
 }
 
 // ── fake：内存假 Pod（主测试缝；echo 里带 user/session 以便断言路由）──────
+// POWERI_FAKE_DELAY_MS>0 时在回复前睡眠，让并发串行/并行在时序上可观测
+const FAKE_DELAY = Number(process.env.POWERI_FAKE_DELAY_MS ?? 0);
+
 export function fakePodStream(userId, sessionId, message) {
   const reply = `(fake)[${userId}/${sessionId}] echo: ${message}`;
   return (async function* () {
     yield { type: "agent_start" };
     yield { type: "turn_start" };
     yield { type: "message_start", message: { role: "assistant" } };
+    if (FAKE_DELAY > 0) await sleep(FAKE_DELAY);
     yield { type: "message_update", message: { role: "assistant", content: [{ type: "text", text: reply }] } };
     yield { type: "message_end", message: { role: "assistant", content: [{ type: "text", text: reply }] } };
     yield { type: "turn_end" };
@@ -121,13 +125,16 @@ function wsEvents(ws) {
 function bridgePodStream(wsUrl, message) {
   return (async function* () {
     const ws = await connectWs(wsUrl);
-    ws.send(JSON.stringify({ id: "g-chat", type: "prompt", message }));
-    const it = wsEvents(ws);
-    for await (const ev of it) {
-      yield ev;
-      if (ev.type === "agent_settled") break;
+    ws.on("error", () => {}); // 防未处理 error 崩溃；close 事件负责收尾
+    try {
+      ws.send(JSON.stringify({ id: "g-chat", type: "prompt", message }));
+      for await (const ev of wsEvents(ws)) {
+        yield ev;
+        if (ev.type === "agent_settled") break;
+      }
+    } finally {
+      ws.close(); // 生成器被抛弃（客户端断开/异常）也会关 WS → 桥杀 pi，不残留进程
     }
-    ws.close();
   })();
 }
 

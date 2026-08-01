@@ -14,6 +14,7 @@
 import { createServer } from "node:http";
 import { getLastSession, newSessionId, setLastSession } from "./store.mjs";
 import { streamPod } from "./pods.mjs";
+import { withLock } from "./queue.mjs";
 
 const PORT = Number(process.env.POWERI_GATEWAY_PORT ?? 8080);
 const USERS = parseUsers(process.env.POWERI_GATEWAY_USERS ?? "alice:dev-token");
@@ -77,15 +78,22 @@ const server = createServer(async (req, res) => {
       Connection: "keep-alive",
     });
     res.write(`event: ready\ndata: {"sessionId":"${sessionId}","isNew":${isNew},"userId":"${userId}"}\n\n`);
+    // 会话级串行（ADR-0005）：同一 (userId, sessionId) 一次只放一个 in-flight，其余排队。
+    // 客户端断开时仍继续消费上游流：让 pi 完成本回合，保证会话 JSONL 完整不损坏。
     try {
-      for await (const ev of await streamPod(userId, sessionId, message)) {
-        res.write(`data: ${JSON.stringify(ev)}\n\n`);
-      }
+      await withLock(`${userId}/${sessionId}`, async () => {
+        for await (const ev of await streamPod(userId, sessionId, message)) {
+          try {
+            res.write(`data: ${JSON.stringify(ev)}\n\n`);
+          } catch {
+            // 对端已断开：忽略写入错误，继续消费直至回合结束
+          }
+        }
+      });
     } catch (e) {
-      res.write(`event: error\ndata: ${JSON.stringify({ error: String(e?.message ?? e) })}\n\n`);
+      try { res.write(`event: error\ndata: ${JSON.stringify({ error: String(e?.message ?? e) })}\n\n`); } catch {}
     }
-    res.write("event: done\ndata: {}\n\n");
-    res.end();
+    try { res.write("event: done\ndata: {}\n\n"); res.end(); } catch {}
     return;
   }
 

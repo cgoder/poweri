@@ -3,7 +3,7 @@
 // 数据目录：POWERI_DATA_DIR（默认 <cwd>/data），user→session 映射在 data/meta/<userId>.json
 
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 export const DATA_DIR = process.env.POWERI_DATA_DIR ?? path.join(process.cwd(), "data");
@@ -24,8 +24,12 @@ export function setLastSession(userId, sessionId) {
   const prev = { userId, sessions: [] };
   try { prev.sessions = JSON.parse(readFileSync(metaFile(userId), "utf8")).sessions ?? []; } catch {}
   if (!prev.sessions.includes(sessionId)) prev.sessions.push(sessionId);
-  writeFileSync(metaFile(userId), JSON.stringify(
-    { userId, lastSessionId: sessionId, sessions: prev.sessions.slice(-50), updatedAt: Date.now() }, null, 2));
+  const data = JSON.stringify(
+    { userId, lastSessionId: sessionId, sessions: prev.sessions.slice(-50), updatedAt: Date.now() }, null, 2);
+  // 同目录临时文件 + rename = 原子替换：并发写不会产生半截/损坏的 meta JSON
+  const tmp = metaFile(userId) + ".tmp";
+  writeFileSync(tmp, data);
+  renameSync(tmp, metaFile(userId));
 }
 
 export function newSessionId() {
