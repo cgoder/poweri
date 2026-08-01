@@ -14,11 +14,13 @@
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { WebSocketServer } from "ws";
 import { getLastSession, newSessionId, setLastSession } from "./store.mjs";
 import { streamPod, sessionFileHost } from "./pods.mjs";
 import { withLock } from "./queue.mjs";
 import { appendUsage, invoiceFor, scanUsage } from "./metering.mjs";
+import { logEvent } from "./log.mjs";
 
 const PORT = Number(process.env.POWERI_GATEWAY_PORT ?? 8080);
 const USERS = parseUsers(process.env.POWERI_GATEWAY_USERS ?? "alice:dev-token");
@@ -64,12 +66,29 @@ function resolveSession(userId, session) {
   return [newSessionId(), true];
 }
 
+const PROVIDER = process.env.POWERI_POD_PROVIDER ?? "fake";
+
+// 就绪探针：Pod 提供层可用才 ready（docker 需引擎存活；fake/bridge 直接可用）
+function readyz() {
+  if (PROVIDER === "docker") {
+    try { execFileSync("docker", ["info"], { stdio: "ignore" }); return true; }
+    catch { return false; }
+  }
+  return true;
+}
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
   if (url.pathname === "/healthz") {
     res.writeHead(200, { "Content-Type": "text/plain" });
     res.end("ok");
+    return;
+  }
+
+  if (url.pathname === "/readyz") {
+    res.writeHead(readyz() ? 200 : 503, { "Content-Type": "text/plain" });
+    res.end(readyz() ? "ready" : "not ready");
     return;
   }
 
@@ -101,8 +120,9 @@ const server = createServer(async (req, res) => {
     await withLock(`${userId}/${sessionId}`, async () => {
       const t0 = Date.now();
       let usageAgg = null, bytesOut = 0, ok = true;
+      const requestId = `${sessionId}-${randomUUID().slice(0, 8)}`; // traceId：贯穿 client→网关→Pod
       try {
-        const { stream } = await streamPod(userId, sessionId, message);
+        const { stream } = await streamPod(userId, sessionId, message, requestId);
         for await (const ev of stream) {
           if (ev?.type === "message_end" && ev.message?.role === "assistant" && ev.message.usage) {
             usageAgg = usageAgg ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 0 };
@@ -120,10 +140,16 @@ const server = createServer(async (req, res) => {
       }
       appendUsage(userId, {
         ts: Date.now(),
-        requestId: `${sessionId}-${randomUUID().slice(0, 8)}`,
+        requestId,
         sessionId, ok,
         usage: usageAgg,
         platform: { durationMs: Date.now() - t0, bandwidthBytes: bytesOut },
+      });
+      logEvent({
+        type: "request", ok, userId, sessionId, requestId,
+        channel: "sse", provider: PROVIDER,
+        durationMs: Date.now() - t0, bytesOut,
+        usage: usageAgg,
       });
     });
     try { res.write("event: done\ndata: {}\n\n"); res.end(); } catch {}
@@ -211,14 +237,30 @@ wss.on("connection", (ws, req) => {
       const [sessionId, isNew] = resolveSession(userId, msg.session);
       setLastSession(userId, sessionId);
       wsend({ type: "ready", sessionId, isNew, userId });
+      const requestId = `${sessionId}-${randomUUID().slice(0, 8)}`;
       await withLock(`${userId}/${sessionId}`, async () => {
-        const { stream, abort } = await streamPod(userId, sessionId, msg.message);
+        const t0 = Date.now();
+        let usageAgg = null, bytesOut = 0, ok = true;
+        const { stream, abort } = await streamPod(userId, sessionId, msg.message, requestId);
         current = { abort };
         try {
-          for await (const ev of stream) wsend(ev);
+          for await (const ev of stream) {
+            const s = JSON.stringify(ev);
+            bytesOut += s.length;
+            wsend(ev);
+            if (ev.type === "message_end" && ev.message?.role === "assistant" && ev.message.usage) {
+              usageAgg = usageAgg ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 0 };
+              for (const k of ["input", "output", "cacheRead", "cacheWrite", "reasoning", "totalTokens"]) {
+                usageAgg[k] += Number(ev.message.usage[k]) || 0;
+              }
+            }
+          }
         } catch (e) {
+          ok = false;
           wsend({ type: "error", error: String(e?.message ?? e) });
         } finally { current = null; }
+        appendUsage(userId, { ts: Date.now(), requestId, sessionId, ok, usage: usageAgg, platform: { durationMs: Date.now() - t0, bandwidthBytes: bytesOut } });
+        logEvent({ type: "request", ok, userId, sessionId, requestId, channel: "ws", provider: PROVIDER, durationMs: Date.now() - t0, bytesOut, usage: usageAgg });
       });
       wsend({ type: "done" });
     } finally { inflight = false; }

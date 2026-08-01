@@ -145,13 +145,13 @@ function wsEvents(ws) {
   })();
 }
 
-function bridgePodStream(wsUrl, message) {
+function bridgePodStream(wsUrl, message, requestId) {
   let ws = null; // 连接建立后才可 abort；连接前 abort 被忽略（PoC 可接受窗口）
   const stream = (async function* () {
     ws = await connectWs(wsUrl);
     ws.on("error", () => {}); // 防未处理 error 崩溃；close 事件负责收尾
     try {
-      ws.send(JSON.stringify({ id: "g-chat", type: "prompt", message }));
+      ws.send(JSON.stringify({ id: requestId, type: "prompt", message })); // requestId 贯穿：response 事件回带同 id（trace）
       for await (const ev of wsEvents(ws)) {
         yield ev;
         if (ev.type === "agent_settled") break;
@@ -168,11 +168,12 @@ const PROVIDER = process.env.POWERI_POD_PROVIDER ?? "fake";
 const BRIDGE_URL = process.env.POWERI_POD_BRIDGE_URL ?? "ws://localhost:8081";
 
 // 路由入口：统一返回 Promise<{ stream: AsyncIterable<object>, abort: () => void }>
-export async function streamPod(userId, sessionId, message) {
+// requestId：贯穿链路（client→网关→桥 prompt id→pi response id），供 trace 关联
+export async function streamPod(userId, sessionId, message, requestId) {
   if (PROVIDER === "docker") {
     const wsUrl = await ensureBridgePod(userId, sessionId);
-    return bridgePodStream(wsUrl, message);
+    return bridgePodStream(wsUrl, message, requestId);
   }
-  if (PROVIDER === "bridge") return bridgePodStream(BRIDGE_URL, message);
+  if (PROVIDER === "bridge") return bridgePodStream(BRIDGE_URL, message, requestId);
   return fakePodStream(userId, sessionId, message);
 }
