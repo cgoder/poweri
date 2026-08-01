@@ -4,7 +4,7 @@
 
 **Blocked by:** 14 — User Memory 生态包深度调研与选型（决策已定案）；08 — 自研基线（verify-08 验证基线）
 
-**Status:** done（注入点迁移 + 删除恢复 + 稳定快照确认 + daily 日志评估不做；验证：单测全过 + verify-08 Part A/C 过，Part B 因宿主模型配置缺失跳过）
+**Status:** done（注入点迁移 + 删除恢复 + 稳定快照确认 + daily 日志评估不做；验证：单测全过 + verify-08 A/B/C 全过——Part B 在配置目录迁移后（deploy/config/pi）用项目配置全链路通过）
 
 **背景:** `docs/research/pi-memory-deep-research.md` 决策。pi-memory 注入机制已实证在 pi 0.83.0 生效（`before_agent_start` systemPrompt 路径，进入最终 provider 负载）；但其 exit summary（会话结束额外 LLM，无开关）与 daily 无锁写与平台"每请求一进程 + 跨会话并行"冲突，故不整体替换，移植其成熟细节。
 
