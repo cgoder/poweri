@@ -52,14 +52,16 @@
 
 ### 4.3 读路径（注入）
 
-- `context` 事件：每次 LLM 调用前读取 `memory.md`，向 `event.messages` 头部 prepend 一条 system 消息：
+- **实证结论（重要修正）**：pi 0.83.0 的 `context` 事件修改 `event.messages` **不会进入最终 provider 负载**（实测 payload 只有 pi 自身 developer + user 两条）；向 payload 新增一条 `system` 消息会触发 llsm 网关的 developer 角色位置校验 400。**唯一可靠路径**：`before_provider_request` 把记忆块**追加到首位 system/developer 消息内容**（不新增消息、不动角色顺序）。
+- 注入内容：
   ```
-  ## User Memory（来自 /workspace/.poweri/memory/memory.md）
+  ## User Memory（持久记忆，跨会话保留；来自用户自己的记忆文件）
   <memory.md 内容>
   ## 记忆使用规则
   当用户透露持续性信息（身份/偏好/决定/项目进展）时，调用 remember 工具记入对应节；
   寒暄、瞬时指令、已答问题不要记；同义事实用 replace 去重。
   ```
+- 幂等：`MARKER`（`## User Memory（持久记忆`）已在首位消息中则跳过——多轮/工具调用会多次触发 `before_provider_request`，防重复追加。
 - 预算：`POWERI_MEMORY_BUDGET`（默认 3000 tokens，按 chars≈tokens×4 估算，可调）。
 - 超预算截断：**保留 `## 画像` 全部 + 事实/偏好各取最近条目**（先裁最旧），保持 markdown 结构完整。
 - 空 memory.md（新用户）：注入"记忆为空"占位，让 agent 知道体系存在但不强行注入。

@@ -7,15 +7,22 @@
 
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { WebSocketServer } from "ws";
 
 const PORT = Number(process.env.POWERI_BRIDGE_PORT ?? 8081);
 const MODEL = (process.env.POWERI_AI_MODEL ?? "").trim();
 const SESSION = (process.env.POWERI_SESSION_PATH ?? "").trim();
+// 扩展加载：POWERI_EXTENSIONS 逗号/空格分隔的路径列表；默认带镜像内置 User Memory 扩展（路径存在才加，兼容宿主直跑）
+const EXTENSIONS = (process.env.POWERI_EXTENSIONS ?? "/poweri/extensions/user-memory.mjs")
+  .split(/[,\s]+/)
+  .map((p) => p.trim())
+  .filter((p) => p && existsSync(p));
 const piArgs = [
   "--mode", "rpc",
   ...(MODEL ? ["--model", `poweri-gw/${MODEL}`] : []),
   ...(SESSION ? ["--session", SESSION] : []),
+  ...EXTENSIONS.flatMap((p) => ["-e", p]),
 ];
 
 // 把字节流按 LF 切成完整 JSONL 行。

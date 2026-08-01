@@ -16,6 +16,9 @@ RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent@${PI_VERSION
 COPY bridge/ /bridge/
 RUN cd /bridge && npm install --omit=dev --ignore-scripts
 
+# User Memory 扩展（ticket 08）：打包进镜像，桥以 -e 加载；typebox 从 pi 的 node_modules 解析
+COPY memory-extension/user-memory.mjs memory-extension/memory-core.mjs /poweri/extensions/
+
 # 非 root 运行（收窄被注入工具的影响面）
 RUN useradd --create-home --shell /bin/bash piuser
 USER piuser
