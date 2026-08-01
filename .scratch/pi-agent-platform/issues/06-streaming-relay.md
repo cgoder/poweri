@@ -4,8 +4,10 @@
 
 **Blocked by:** 03 — 网关骨架：认证 + 路由
 
-**Status:** ready-for-agent
+**Status:** done（commit 见下）
 
-- [ ] 客户端实时收到消息增量与工具执行事件
-- [ ] 长连接（持续流式）与短处理（一次性）两种形态都可用
-- [ ] 连接中断可重连且不丢已持久化事件
+**Done:** 网关新增 WS 长连接端点 `/v1/ws`（多轮 + abort + busy 拒绝 + 断线 drain）与历史补发接口 `GET /v1/sessions/<id>/messages`；streamPod 统一返回 `{stream, abort}`；verify-06 全链路 8 项断言通过。
+
+- [x] 客户端实时收到消息增量与工具执行事件（SSE + WS 均验证）
+- [x] 长连接（WS /v1/ws 多轮 + abort）与短处理（POST /v1/chat SSE）两形态（verify-06 Part A/B）
+- [x] 连接中断可重连且不丢已持久化事件（事件持久化于会话 JSONL；GET /v1/sessions/<id>/messages 补发；B3 跨连接续接验证）

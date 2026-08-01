@@ -90,6 +90,7 @@ async function ensureBridgePod(userId, sessionId) {
 // ── fake：内存假 Pod（主测试缝；echo 里带 user/session 以便断言路由）──────
 // POWERI_FAKE_DELAY_MS>0 时在回复前睡眠，让并发串行/并行在时序上可观测
 // POWERI_FAKE_USAGE="input/output/cacheRead/cacheWrite/reasoning" 注入确定性 usage（计量测试）
+// abort() 中断睡眠并提前结束（模拟 pi abort 后停止生成）
 const FAKE_DELAY = Number(process.env.POWERI_FAKE_DELAY_MS ?? 0);
 const _fu = (process.env.POWERI_FAKE_USAGE ?? "").split("/").map(Number);
 const FAKE_USAGE = _fu.length === 5 && _fu.every((n) => !Number.isNaN(n))
@@ -99,16 +100,25 @@ const FAKE_USAGE = _fu.length === 5 && _fu.every((n) => !Number.isNaN(n))
 export function fakePodStream(userId, sessionId, message) {
   const reply = `(fake)[${userId}/${sessionId}] echo: ${message}`;
   const content = [{ type: "text", text: reply }];
-  return (async function* () {
+  let aborted = false, wake = null;
+  const abort = () => { aborted = true; if (wake) { const w = wake; wake = null; w(); } };
+  const sleepAbortable = (ms) => new Promise((resolve) => {
+    let timer;
+    wake = () => { clearTimeout(timer); resolve(); };
+    timer = setTimeout(() => { wake = null; resolve(); }, ms);
+  });
+  const stream = (async function* () {
     yield { type: "agent_start" };
     yield { type: "turn_start" };
     yield { type: "message_start", message: { role: "assistant" } };
-    if (FAKE_DELAY > 0) await sleep(FAKE_DELAY);
+    if (FAKE_DELAY > 0) await sleepAbortable(FAKE_DELAY);
+    if (aborted) { yield { type: "agent_settled" }; return; } // 提前停止：回合中断但会话状态完整
     yield { type: "message_update", message: { role: "assistant", content } };
     yield { type: "message_end", message: { role: "assistant", content, usage: FAKE_USAGE } };
     yield { type: "turn_end" };
     yield { type: "agent_end" };
   })();
+  return { stream, abort };
 }
 
 // ── WS → 事件异步迭代器（逐条 JSONL）─────────────────────────────────
@@ -129,8 +139,9 @@ function wsEvents(ws) {
 }
 
 function bridgePodStream(wsUrl, message) {
-  return (async function* () {
-    const ws = await connectWs(wsUrl);
+  let ws = null; // 连接建立后才可 abort；连接前 abort 被忽略（PoC 可接受窗口）
+  const stream = (async function* () {
+    ws = await connectWs(wsUrl);
     ws.on("error", () => {}); // 防未处理 error 崩溃；close 事件负责收尾
     try {
       ws.send(JSON.stringify({ id: "g-chat", type: "prompt", message }));
@@ -142,12 +153,14 @@ function bridgePodStream(wsUrl, message) {
       ws.close(); // 生成器被抛弃（客户端断开/异常）也会关 WS → 桥杀 pi，不残留进程
     }
   })();
+  return { stream, abort: () => { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "abort" })); } };
 }
 
 // ── 路由入口 ─────────────────────────────────────────────────────────
 const PROVIDER = process.env.POWERI_POD_PROVIDER ?? "fake";
 const BRIDGE_URL = process.env.POWERI_POD_BRIDGE_URL ?? "ws://localhost:8081";
 
+// 路由入口：统一返回 Promise<{ stream: AsyncIterable<object>, abort: () => void }>
 export async function streamPod(userId, sessionId, message) {
   if (PROVIDER === "docker") {
     const wsUrl = await ensureBridgePod(userId, sessionId);

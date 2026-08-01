@@ -3,18 +3,20 @@
 //   GET  /healthz                     存活探针
 //   POST /v1/chat  Authorization: Bearer <token>
 //         body { "session": "new"|"<id>"|省略, "message": "hi" }
-//         → SSE 事件流：首个事件 {"type":"session","sessionId":...}（会话决策可见），
-//           其后为 Pod 上游事件（message_update 等）
+//         → SSE 事件流：首个事件 {"type":"session",...}（会话决策可见），其后为 Pod 上游事件
+//   GET  /v1/sessions/<sessionId>/messages  Bearer <token>  → 会话历史（断线重连补发）
+//   WS   /v1/ws?token=<token>      长连接多轮对话；{"type":"abort"} 中断当前轮
 // 会话语义：省略/“continue” → 续接该用户最近会话；无则新建；“new” → 强制新会话；
 //           “<id>” → 续接指定会话。会话文件落在该用户数据目录（PoC 版 PVC）。
 // 无状态：不保存会话，路由全靠请求自身 + 元数据存储（store.mjs）。
 // 运行：node gateway/server.mjs
 //   POWERI_GATEWAY_PORT / POWERI_GATEWAY_USERS("alice:token-a;bob:token-b") / POWERI_POD_PROVIDER
-
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import { WebSocketServer } from "ws";
 import { getLastSession, newSessionId, setLastSession } from "./store.mjs";
-import { streamPod } from "./pods.mjs";
+import { streamPod, sessionFileHost } from "./pods.mjs";
 import { withLock } from "./queue.mjs";
 import { appendUsage, invoiceFor, scanUsage } from "./metering.mjs";
 
@@ -100,7 +102,8 @@ const server = createServer(async (req, res) => {
       const t0 = Date.now();
       let usageAgg = null, bytesOut = 0, ok = true;
       try {
-        for await (const ev of await streamPod(userId, sessionId, message)) {
+        const { stream } = await streamPod(userId, sessionId, message);
+        for await (const ev of stream) {
           if (ev?.type === "message_end" && ev.message?.role === "assistant" && ev.message.usage) {
             usageAgg = usageAgg ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 0 };
             for (const k of ["input", "output", "cacheRead", "cacheWrite", "reasoning", "totalTokens"]) {
@@ -124,6 +127,32 @@ const server = createServer(async (req, res) => {
       });
     });
     try { res.write("event: done\ndata: {}\n\n"); res.end(); } catch {}
+    return;
+  }
+
+  if (url.pathname.startsWith("/v1/sessions/") && url.pathname.endsWith("/messages") && req.method === "GET") {
+    // 断线重连历史补发：从用户 PVC 上的会话 JSONL 提取消息（事件已持久化，重连不丢）
+    const userId = userFromReq(req);
+    if (!userId) { sendJson(res, 401, { error: "unauthorized" }); return; }
+    const sessionId = url.pathname.split("/")[3];
+    if (!sessionId) { sendJson(res, 400, { error: "sessionId required" }); return; }
+    const file = sessionFileHost(userId, sessionId);
+    if (!existsSync(file)) { sendJson(res, 404, { error: "session not found" }); return; }
+    const messages = [];
+    for (const line of readFileSync(file, "utf8").split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const o = JSON.parse(line);
+        const m = o.message;
+        if (!m?.role) continue;
+        const parts = m.content ?? [];
+        const text = parts.filter((c) => c.type === "text").map((c) => c.text).join("");
+        const thinking = parts.filter((c) => c.type === "thinking").map((c) => c.thinking ?? c.text ?? "").join("");
+        if (!text && !thinking) continue;
+        messages.push({ role: m.role, text, thinking: thinking || undefined, ts: o.timestamp });
+      } catch { /* 跳过截断行 */ }
+    }
+    sendJson(res, 200, { sessionId, messages });
     return;
   }
 
@@ -156,6 +185,45 @@ const server = createServer(async (req, res) => {
   }
 
   sendJson(res, 404, { error: "not found" });
+});
+
+// ── WS 长连接端点（ticket 06）：同一连接多轮对话，可中途 abort ──────────
+// 连接：/v1/ws?token=<userToken>（浏览器 WS 无法带 Authorization 头，故 token 走 query；也兼容 header）
+// 消息：{ message, session? } 发起一轮（同一连接同时只处理一个，busy 则返回 error）
+//       { type: "abort" } 中断当前轮（pi RPC abort：停止生成，会话 JSONL 保持完整）
+// 事件：ready / 上游事件原样转发 / done；连接断开时仍 drain 完当前轮（同 SSE 策略）
+const wss = new WebSocketServer({ server, path: "/v1/ws" });
+wss.on("connection", (ws, req) => {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const token = url.searchParams.get("token") ?? (req.headers.authorization || "").replace(/^Bearer /, "");
+  const userId = USERS[token] ?? null;
+  if (!userId) { ws.close(4001, "unauthorized"); return; }
+  const wsend = (o) => { try { ws.send(JSON.stringify(o)); } catch {} };
+  let inflight = false, current = null; // 单连接单 in-flight；跨 session 并发请用多连接
+  ws.on("message", async (raw) => {
+    let msg;
+    try { msg = JSON.parse(raw.toString()); } catch { return; }
+    if (msg.type === "abort") { current?.abort(); wsend({ type: "abort_ack" }); return; }
+    if (typeof msg.message !== "string" || !msg.message.trim()) { wsend({ type: "error", error: "message required" }); return; }
+    if (inflight) { wsend({ type: "error", error: "busy: one request at a time per connection" }); return; }
+    inflight = true;
+    try {
+      const [sessionId, isNew] = resolveSession(userId, msg.session);
+      setLastSession(userId, sessionId);
+      wsend({ type: "ready", sessionId, isNew, userId });
+      await withLock(`${userId}/${sessionId}`, async () => {
+        const { stream, abort } = await streamPod(userId, sessionId, msg.message);
+        current = { abort };
+        try {
+          for await (const ev of stream) wsend(ev);
+        } catch (e) {
+          wsend({ type: "error", error: String(e?.message ?? e) });
+        } finally { current = null; }
+      });
+      wsend({ type: "done" });
+    } finally { inflight = false; }
+  });
+  // 断开：不主动取消——drain 由正在跑的 for await 继续完成（JSONL 完整性）
 });
 
 server.listen(PORT, () => console.error(`[gateway] listening on :${PORT}  users=${Object.values(USERS).join(",")}  provider=${process.env.POWERI_POD_PROVIDER ?? "fake"}`));
