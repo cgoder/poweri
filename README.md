@@ -30,7 +30,7 @@ data/              PoC 数据目录（每用户 PVC 占位，已 gitignore）
 测试环境跑在本机 macOS，Docker 用 OrbStack（含 K8s 集成），小步迭代快速反馈——见 ticket `13` 与 `deploy/`。
 
 ```bash
-# 1. 配置：cp .env.example .env 填 AI 网关变量 → 生成 pi 配置
+# 1. 配置：cp env.example .env 填 AI 网关变量 → 生成 pi 配置
 bun run gen:pi-config          # 渲染 ~/.pi/agent/models.json + settings.json
 # 2. 镜像：构建锁版本 worker 镜像（pi@0.83.0，非 root，512MB 官方形态）
 node scripts/build-image.mjs   # → poweri-worker:local

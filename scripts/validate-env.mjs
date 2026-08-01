@@ -12,7 +12,7 @@ const MODEL_KEYS = [
   'POWERI_AI_API_KEY',
 ];
 if (!MODEL_KEYS.some((k) => process.env[k])) {
-  errors.push('缺少模型凭据：需设置至少一个 “…_API_KEY”，或自建网关 POWERI_AI_API_KEY（见 .env.example）');
+  errors.push('缺少模型凭据：需设置至少一个 “…_API_KEY”，或自建网关 POWERI_AI_API_KEY（见 env.example）');
 }
 
 // 自建 AI 网关：若使用了 POWERI_AI_*，则 baseUrl/model/key 必须齐全
