@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 — pi 沙箱容器镜像
 
-**Status:** ready-for-agent
+**Status:** done（93a5287 bun 版 → 2f9eee7 Node 版；每 WS 连接一个 pi --mode rpc 子进程，get_state 健康探针，LF 严格分隔，close 杀 pi；端到端验证通过）
 
 - [ ] 客户端经 WS 连接后发送 prompt，能收到流式消息事件
 - [ ] JSONL 帧以 LF 严格分隔，命令/事件映射正确（对齐 pi RPC 协议）

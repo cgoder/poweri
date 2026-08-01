@@ -6,7 +6,7 @@
 
 **Blocked by:** 04 — 会话续接 + 每用户 PVC 挂载
 
-**Status:** ready-for-agent
+**Status:** done（1ed52d7 占位实现 + 2a30eb8 设计；remember 工具零额外调用写入 + before_provider_request 预算注入；选型挂起，生态包深度调研见 ticket 14）
 
 > ⚠️ **选型挂起**：本实现为占位方案。生态包深度调研与替换决策见 ticket 14（`docs/research/pi-memory-extensions.md` 初步对比）。
 

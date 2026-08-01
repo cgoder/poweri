@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 — 网关骨架：认证 + 路由
 
-**Status:** ready-for-agent
+**Status:** done（a8bda26：per-user JSONL 计量 + 幂等账单 + /v1/admin 接口；fake 精确算账与真实 pi 两链路验证）
 
 - [ ] RPC 事件与平台指标正确聚合到 per-user 计量
 - [ ] 定价规则正确产出每用户账单

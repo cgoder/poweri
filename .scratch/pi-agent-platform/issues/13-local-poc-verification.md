@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 — pi 沙箱容器镜像
 
-**Status:** ready-for-agent
+**Status:** done（d22f6bd 记录首步验证；后续 02-12 每 ticket 均有 verify 脚本闭环，覆盖容器化 pi + 桥 + 网关全链路）
 
 - [ ] 本机 OrbStack 能拉起一个运行 pi 的容器（可驱动一次请求）
 - [ ] PoC 跑通客户端 → 网关 → Pod 桥 → pi 的完整链路，并回流式事件

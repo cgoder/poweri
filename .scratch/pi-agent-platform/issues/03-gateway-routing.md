@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — stdio↔WebSocket 桥
 
-**Status:** ready-for-agent
+**Status:** done（53b4c7d 网关骨架：Bearer 认证 + /v1/chat SSE 路由 + PodProvider fake/bridge；真实链路 client→网关→桥→pi→模型验证通过）
 
 - [ ] 未认证请求被拒绝
 - [ ] 一个客户端请求 → 网关路由到 Pod → 流式回答回到客户端

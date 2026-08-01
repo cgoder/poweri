@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 — 会话续接 + 每用户 PVC 挂载
 
-**Status:** ready-for-agent
+**Status:** done（9976397：keyed mutex 会话内串行/跨会话并行，原子 meta 写，断线 drain；单测 + fake 时序 + 真实 pi JSONL 完整性三层验证）
 
 - [ ] 同一会话两个并发请求被串行化（后一个等前一个完成）
 - [ ] 不同会话的两个请求可并行执行

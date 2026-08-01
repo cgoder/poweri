@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 — 网关骨架：认证 + 路由
 
-**Status:** ready-for-agent
+**Status:** done（83448ae：per-user token 认证 + 元数据存储 + docker provider 按请求挂载用户数据目录 + --session 续接；pod 重建后数据仍在 + 用户隔离验证通过）
 
 - [ ] 同一用户连续两个请求续接同一会话（历史保留）
 - [ ] 不同用户的会话/工作区互相隔离
