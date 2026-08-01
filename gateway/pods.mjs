@@ -8,8 +8,8 @@
 
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
 import { DATA_DIR } from "./store.mjs";
 
@@ -20,7 +20,8 @@ export const userWorkspaceDir = (userId) => path.join(userDir(userId), "workspac
 export const sessionFileHost = (userId, sessionId) => path.join(userPiDir(userId), "sessions", `${sessionId}.jsonl`);
 export const SESSION_FILE_CONTAINER = (sessionId) => `/home/piuser/.pi/agent/sessions/${sessionId}.jsonl`;
 
-const HOST_PI_CONFIG = path.join(homedir(), ".pi", "agent"); // 已由 gen-pi-config 生成
+// 平台 pi 配置源（gen-pi-config 生成）：默认项目内 deploy/config/pi（不污染宿主 ~/.pi/agent），可用 POWERI_PI_CONFIG_DIR 覆盖
+const HOST_PI_CONFIG = process.env.POWERI_PI_CONFIG_DIR || path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "deploy", "config", "pi");
 
 // 首次使用：建用户目录 + 播种 pi 配置（models/settings，来自宿主生成的配置）
 function seedUser(userId) {

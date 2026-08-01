@@ -16,14 +16,14 @@
 
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const DATA_DIR = process.env.POWERI_DATA_DIR ?? path.join(process.cwd(), "data");
 const IMAGE = process.env.POWERI_PIWEB_IMAGE ?? "poweri-piweb:local";
 const BASE_PORT = Number(process.env.POWERI_PIWEB_BASE_PORT ?? 30141);
 const CONTAINER_PORT = 30141; // 镜像内 pi-web 默认监听端口
-const HOST_PI_CONFIG = path.join(homedir(), ".pi", "agent"); // 宿主已由 gen-pi-config 生成的 pi 配置
+const HOST_PI_CONFIG = process.env.POWERI_PI_CONFIG_DIR || path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "deploy", "config", "pi"); // gen-pi-config 生成的平台配置（项目内）
 
 const userDir = (u) => path.join(DATA_DIR, "users", u);
 const userPiDir = (u) => path.join(userDir(u), ".pi", "agent");
@@ -42,7 +42,7 @@ function seedUser(u) {
   mkdirSync(userWsDir(u), { recursive: true });
   const missing = ["models.json", "settings.json"].filter((f) => !existsSync(path.join(piDir, f)));
   if (missing.length) {
-    console.warn(`  ⚠ ${u} 缺少 ${missing.join("/")}（宿主 ~/.pi/agent 未生成配置；先 npm run gen:pi-config）`);
+    console.warn(`  ⚠ ${u} 缺少 ${missing.join("/")}（项目 deploy/config/pi 未生成配置；先 npm run gen:pi-config）`);
   }
 }
 

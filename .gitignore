@@ -30,3 +30,6 @@ data/
 
 # K8s 生成 manifests（脚本生成物，不提交）
 deploy/k8s/generated/
+
+# 平台 pi 配置（gen-pi-config 生成物，含模型 API 密钥，不提交）
+deploy/config/pi/

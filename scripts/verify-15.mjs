@@ -6,7 +6,7 @@
 // Part E: 配置隔离（PUT /api/models-config 写回各自 models.json，互不影响）
 //
 // 前置：node scripts/build-piweb.mjs（poweri-piweb:local）；模型 API 可达
-//       （.env 已配置 + npm run gen:pi-config 已生成宿主 ~/.pi/agent/models.json）
+//       （.env 已配置 + npm run gen:pi-config 已生成项目 deploy/config/pi/models.json）
 // 运行：node scripts/verify-15.mjs
 // 可选：POWERI_PIWEB_IMAGE / POWERI_PIWEB_BASE_PORT / POWERI_PIWEB_PASSWORD_<USER>
 
@@ -15,13 +15,14 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "p15-"));
 const IMAGE = process.env.POWERI_PIWEB_IMAGE ?? "poweri-piweb:local";
 const BASE_PORT = Number(process.env.POWERI_PIWEB_BASE_PORT ?? 31141);
 const USERS = ["alice", "bob"];
 const CONTAINER_PORT = 30141;
-const HOST_PI_CONFIG = path.join(os.homedir(), ".pi", "agent");
+const HOST_PI_CONFIG = process.env.POWERI_PI_CONFIG_DIR || path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "deploy", "config", "pi");
 
 const userDir = (u) => path.join(DATA_DIR, "users", u);
 const userPiDir = (u) => path.join(userDir(u), ".pi", "agent");

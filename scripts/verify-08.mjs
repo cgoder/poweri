@@ -5,6 +5,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { execFileSync, spawn } from "node:child_process";
 
 const assert = (cond, msg) => { if (!cond) { console.error(`✖ ${msg}`); process.exitCode = 1; } else console.log(`✔ ${msg}`); };
@@ -40,25 +41,28 @@ function cleanupPods() {
 }
 function dockerRun(args) { return execFileSync("docker", args, { encoding: "utf8" }); }
 
-// 环境前提（Part B 全链路）：gateway seedUser 从宿主 ~/.pi/agent 拷贝 models.json，桥硬编码 --model poweri-gw/<model>，
-// 故宿主配置必须含 poweri-gw provider（由 scripts/gen-pi-config.mjs 生成：POWERI_AI_BASE_URL/API_KEY/MODEL）。
+// 环境前提（Part B 全链路）：gateway seedUser 从平台 pi 配置目录拷贝 models.json，桥硬编码 --model poweri-gw/<model>，
+// 故平台配置（默认项目 deploy/config/pi，可 POWERI_PI_CONFIG_DIR 覆盖）必须含 poweri-gw provider（由 scripts/gen-pi-config.mjs 生成）。
 // 缺失时 pi 在桥内启动即报 Model not found（静默空响应），这里提前检测并跳过 Part B。
+// Part A 则用宿主 ~/.pi/agent 配置（用户本机真实模型，不依赖 poweri-gw）。
+const PI_CONFIG_DIR = process.env.POWERI_PI_CONFIG_DIR || path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "deploy", "config", "pi");
+const HOST_PI_CONFIG = process.env.POWERI_PI_CONFIG_DIR || path.join(os.homedir(), ".pi", "agent");
 function hostConfigMissingPoweriGw() {
-  const cfg = path.join(os.homedir(), ".pi", "agent", "models.json");
-  if (!fs.existsSync(cfg)) return `宿主配置缺失: ${cfg}`;
+  const cfg = path.join(PI_CONFIG_DIR, "models.json");
+  if (!fs.existsSync(cfg)) return `平台配置缺失: ${cfg}`;
   try {
-    return JSON.parse(fs.readFileSync(cfg, "utf8")).providers?.["poweri-gw"] ? null : `宿主 ${cfg} 缺少 poweri-gw provider`;
+    return JSON.parse(fs.readFileSync(cfg, "utf8")).providers?.["poweri-gw"] ? null : `平台配置 ${cfg} 缺少 poweri-gw provider`;
   } catch (e) {
-    return `宿主 ${cfg} 解析失败: ${e.message}`;
+    return `平台配置 ${cfg} 解析失败: ${e.message}`;
   }
 }
 
 // ══════════ Part A: 容器级 remember + 跨进程注入（print 模式） ══════════
 async function partA() {
   console.log("── Part A: 容器级扩展（print 模式）──");
-  // 只读快照宿主 pi 配置供容器挂载（不触碰宿主安装）
+  // 用宿主 ~/.pi/agent 配置（用户本机真实模型），供容器挂载（不触碰宿主安装）
   const cfg = fs.mkdtempSync(path.join(os.tmpdir(), "p08cfg-"));
-  fs.cpSync(path.join(os.homedir(), ".pi", "agent"), cfg, { recursive: true });
+  fs.cpSync(HOST_PI_CONFIG, cfg, { recursive: true });
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), "p08a-"));
   const run = (prompt) => dockerRun(["run", "--rm", "-v", `${cfg}:/home/piuser/.pi/agent`, "-v", `${ws}:/workspace`, "poweri-worker:local", "-e", "/poweri/extensions/user-memory.mjs", "-p", prompt]);
   // 1. 让 agent 调 remember 写偏好
@@ -78,7 +82,7 @@ async function partB() {
   console.log("── Part B: 全链路（gateway + docker provider + 真实 pi）──");
   const cfgIssue = hostConfigMissingPoweriGw();
   if (cfgIssue) {
-    console.log(`⚠ Part B 跳过：${cfgIssue}。运行 scripts/gen-pi-config.mjs（需 POWERI_AI_BASE_URL/API_KEY/MODEL）后重跑。`);
+    console.log(`⚠ Part B 跳过：${cfgIssue}。运行 npm run gen:pi-config（需 .env 的 POWERI_AI_BASE_URL/API_KEY/MODEL）后重跑。`);
     return;
   }
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "p08b-"));

@@ -3,10 +3,10 @@
 // 背景：pi 的 models.json 只对 apiKey 支持 $ENV 插值，baseUrl/模型 id 需字面量，
 // 故用本脚本把 .env 作为唯一来源，生成 pi 实际读取的配置文件。
 // 用法：npm run gen:pi-config   （内部 node --env-file-if-exists=.env）
-// 目标目录默认 ~/.pi/agent/，可用 POWERI_PI_CONFIG_DIR 覆盖。
+// 目标目录默认 <项目根>/deploy/config/pi/（平台配置放项目内，不污染宿主 ~/.pi/agent），可用 POWERI_PI_CONFIG_DIR 覆盖。
 
 import { mkdir, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
@@ -51,7 +51,7 @@ const modelsJson = {
 
 const settingsJson = { defaultThinkingLevel: thinkingLevel };
 
-const dir = process.env.POWERI_PI_CONFIG_DIR || path.join(homedir(), '.pi', 'agent');
+const dir = process.env.POWERI_PI_CONFIG_DIR || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'deploy', 'config', 'pi');
 await mkdir(dir, { recursive: true });
 await writeFile(path.join(dir, 'models.json'), JSON.stringify(modelsJson, null, 2) + '\n');
 await writeFile(path.join(dir, 'settings.json'), JSON.stringify(settingsJson, null, 2) + '\n');
