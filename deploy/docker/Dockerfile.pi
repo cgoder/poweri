@@ -8,6 +8,9 @@ RUN apt-get update \
 ARG PI_VERSION=0.83.0
 RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent@${PI_VERSION}
 
+# bun：stdio↔WebSocket 桥的运行时（pi 本身是 node，桥用 bun）
+RUN npm install -g bun
+
 # 非 root 运行（收窄被注入工具的影响面）
 RUN useradd --create-home --shell /bin/bash piuser
 USER piuser
