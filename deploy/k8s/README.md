@@ -1,9 +1,9 @@
 # 部署 manifests（k8s）
 
-计划按 spec/ticket 逐步补齐：
+现状（ticket 19 已收口）：
 
-- `gateway/` 无状态网关层 Deployment + Service + LB
-- `worker/` Worker Pod Deployment（含温池 + 自动伸缩，ticket 10）
+- `gateway` 无状态网关层 Deployment + Service + NodePort（见下方 Gateway 部署）
+- `worker` Worker Pod Deployment（含温池 + 自动伸缩，ticket 10）
 - `networkpolicy.yaml` 出站仅放行模型 API 与存储（ticket 07）
 - `pvc/` per-user PVC 供给与 StorageClass（ticket 04）
 
@@ -66,3 +66,15 @@ node scripts/verify-k8s.mjs            # 多用户隔离 / 会话落 PVC / Pod �
 - 会话路径经 WS query 传给桥（常驻 Pod 按连接指定，覆盖启动 env）
 - initContainer chown 1000:1000 保证 piuser 写 PVC（root 建目录会 EACCES）
 - 每用户常驻 Pod 为 PoC 形态；生产 = 温池 + HPA（见上）+ NetworkPolicy（networkpolicy.yaml）
+
+## Gateway 部署（ticket 19，已实现）
+
+`node scripts/gen-k8s.mjs [users]` 现同时部署无状态网关层：
+
+- `gateway` Deployment（镜像 `poweri-gateway:local`，见 `deploy/docker/Dockerfile.gateway`，构建：`node scripts/build-gateway.mjs`）
+  - 数据挂独立 `gateway-pvc`（meta/计量持久；多副本水平扩展需共享元数据存储，生产换数据库，见 `gateway/store.mjs` 注释）
+  - 内部经 Service DNS 路由到 worker：`POWERI_K8S_USERS="alice:worker-alice.poweri.svc.cluster.local:8081"`（k8s provider 支持 host:port 形式，开发机场景仍可 `alice:30081` NodePort + `POWERI_K8S_NODE_HOST`）
+- `gateway` Service：NodePort 31080（集群内 `gateway.poweri.svc.cluster.local:8080`）
+- **密钥不入 ConfigMap**：Secret `poweri-secrets` 存模型 apiKey + 网关用户 token；pi 配置 apiKey 写 `$POWERI_AI_API_KEY` 环境引用（`gen-pi-config` 的 `POWERI_PI_CONFIG_APIKEY_REF=1`，pi 原生 $ENV 插值），worker/gateway 容器经 `secretKeyRef` 注入
+
+验证：`node scripts/verify-19.mjs`（引用版配置 → 部署 → ConfigMap/Secret 位置断言 → 全链路请求 → PVC 会话落盘）。

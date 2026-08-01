@@ -32,12 +32,16 @@ if (errors.length) {
 
 const reasoning = ON_VALUES.includes(thinking);
 
+// apiKey 写入形式：默认字面量（docker PoC 零依赖）；POWERI_PI_CONFIG_APIKEY_REF=1 时写 $POWERI_AI_API_KEY 环境引用
+// （pi 原生 $ENV 插值）→ 配置不含明文密钥，运行时由 K8s Secret / 容器 env 注入（ticket 19）
+const apiKeyOut = process.env.POWERI_PI_CONFIG_APIKEY_REF === "1" ? "$POWERI_AI_API_KEY" : apiKey;
+
 const modelsJson = {
   providers: {
     'poweri-gw': {
       baseUrl,
       api: 'openai-completions',
-      apiKey,
+      apiKey: apiKeyOut,
       models: [
         {
           id: model,
@@ -59,3 +63,4 @@ await writeFile(path.join(dir, 'settings.json'), JSON.stringify(settingsJson, nu
 console.log('✅ pi 配置已生成到 ' + dir);
 console.log(`   模型: poweri-gw/${model}`);
 console.log(`   思考: ${reasoning ? 'on' : 'off'} | 默认等级: ${thinkingLevel}`);
+console.log(`   apiKey: ${apiKeyOut === '$POWERI_AI_API_KEY' ? '环境引用 $POWERI_AI_API_KEY（运行时注入）' : '字面量'}`);

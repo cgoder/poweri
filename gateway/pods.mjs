@@ -168,17 +168,18 @@ function bridgePodStream(wsUrl, message, requestId) {
 const PROVIDER = process.env.POWERI_POD_PROVIDER ?? "fake";
 const BRIDGE_URL = process.env.POWERI_POD_BRIDGE_URL ?? "ws://localhost:8081";
 
-// k8s：真实 K8s（每用户 PVC + Deployment + NodePort Service；PoC 静态映射）
-// POWERI_K8S_USERS="alice:30081;bob:30082"（userId:nodePort）；会话按连接经 WS query 传给桥
+// k8s：真实 K8s（每用户 PVC + Deployment + Service；静态映射）
+// POWERI_K8S_USERS="alice:30081;bob:30082"（userId:nodePort，host 默认 POWERI_K8S_NODE_HOST）
+//   或 "alice:worker-alice.poweri.svc.cluster.local:8081"（gateway 在 K8s 内时用 Service DNS）
 const K8S_USERS = Object.fromEntries(
   (process.env.POWERI_K8S_USERS ?? "").split(";").filter(Boolean)
-    .map((p) => { const [u, port] = p.split(":"); return [u, port?.trim()]; })
+    .map((p) => { const [u, a, b] = p.split(":"); return [u, b ? `${a}:${b}` : a?.trim()]; })
 );
 function k8sBridgeUrl(userId, sessionId) {
-  const port = K8S_USERS[userId];
-  if (!port) throw new Error(`k8s 无该用户映射: ${userId}（POWERI_K8S_USERS）`);
-  const host = process.env.POWERI_K8S_NODE_HOST ?? "127.0.0.1";
-  return `ws://${host}:${port}/?session=${encodeURIComponent(SESSION_FILE_CONTAINER(sessionId))}`;
+  const target = K8S_USERS[userId];
+  if (!target) throw new Error(`k8s 无该用户映射: ${userId}（POWERI_K8S_USERS）`);
+  const addr = target.includes(":") ? target : `${process.env.POWERI_K8S_NODE_HOST ?? "127.0.0.1"}:${target}`;
+  return `ws://${addr}/?session=${encodeURIComponent(SESSION_FILE_CONTAINER(sessionId))}`;
 }
 
 // 路由入口：统一返回 Promise<{ stream: AsyncIterable<object>, abort: () => void }>
