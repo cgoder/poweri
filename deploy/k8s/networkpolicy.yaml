@@ -1,0 +1,37 @@
+# Worker Pod 出站 NetworkPolicy（ticket 07 生产形态）
+# PoC 已在 docker 层验证隔离基础（非 root / 资源限额 / 只挂载本用户 PVC，见 scripts/verify-07.mjs）；
+# 本文件是 K8s 正式形态：egress 仅放行模型 API 域名与用户 PVC 存储（K8s 内 PV 流量不过 CNI egress 规则，
+# 核心是模型 API 白名单 + 默认拒绝任意出站）。
+# 注意：llsm.litta.cn 需按实际模型网关替换；若走集群内自建网关（gateway 命名空间）则用 namespaceSelector。
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: worker-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: poweri
+      role: worker
+  policyTypes:
+    - Egress
+  egress:
+    # 模型 API 白名单（替换为实际 AI 网关域名/IP；IPBlock 更严格）
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app: aigateway
+      ports:
+        - protocol: TCP
+          port: 443
+    # 允许 DNS（解析模型域名必需）
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

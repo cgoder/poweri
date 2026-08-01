@@ -37,6 +37,11 @@ function seedUser(userId) {
 
 // ── docker：按请求调度/复用容器（PoC 版 K8s Pod 调度）───────────────────
 const POD_IMAGE = process.env.POWERI_POD_IMAGE ?? "pi-sandbox:local";
+// 资源限额（ticket 07 容器级隔离）：默认 1 CPU / 512MB / 128 pids，可经 env 覆盖
+// K8s 正式形态 = deploy/k8s/ 的 resources.limits + NetworkPolicy（docker 层无 egress 白名单）
+const POD_CPUS = process.env.POWERI_POD_CPUS ?? "1";
+const POD_MEM_MB = process.env.POWERI_POD_MEM_MB ?? "512";
+const POD_PIDS = process.env.POWERI_POD_PIDS ?? "128";
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -71,6 +76,8 @@ async function ensureBridgePod(userId, sessionId) {
     if (existing) return containerPort(name);
   } catch {}
   execFileSync("docker", ["run", "-d", "--rm", "--name", name,
+    "--cpus", POD_CPUS, "--memory", `${POD_MEM_MB}m`, "--memory-swap", `${POD_MEM_MB}m`,
+    "--pids-limit", POD_PIDS,
     "-v", `${userPiDir(userId)}:/home/piuser/.pi/agent`,
     "-v", `${userWorkspaceDir(userId)}:/workspace`,
     "-e", `POWERI_AI_MODEL=${process.env.POWERI_AI_MODEL ?? "agent"}`,
