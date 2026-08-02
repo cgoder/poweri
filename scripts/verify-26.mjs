@@ -54,11 +54,11 @@ try {
   // 4. 镜像元数据
   const insp = JSON.parse(execFileSync("docker", ["inspect", IMG], { encoding: "utf8" }))[0];
   const sizeMB = Math.round(insp.Size / 1024 / 1024);
-  ok("镜像构建成功且尺寸 < 600MB", sizeMB < 600, `${sizeMB}MB`);
+  ok("镜像构建成功且尺寸 < 1GB（上游 piweb 1.11GB）", sizeMB < 1024, `${sizeMB}MB`);
   const nodeV = execFileSync("docker", ["run", "--rm", "--entrypoint", "node", IMG, "--version"], { encoding: "utf8" }).trim();
   ok("容器内 Node 24", nodeV.startsWith("v24"), nodeV);
   const piV = execFileSync("docker", ["run", "--rm", "--entrypoint", "node", IMG, "-e",
-    "console.log(require('@earendil-works/pi-coding-agent/package.json').version)"], { encoding: "utf8" }).trim();
+    "console.log(JSON.parse(require('fs').readFileSync('/app/node_modules/@earendil-works/pi-coding-agent/package.json')).version)"], { encoding: "utf8" }).trim();
   ok("容器内 pi 0.83.0", piV === "0.83.0", piV);
 
   // 5. 认证
