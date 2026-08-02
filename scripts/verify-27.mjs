@@ -8,7 +8,7 @@ const users = (process.argv[2] ?? "alice,bob").split(",");
 const UI_USER = users[0];
 const UI_PORT = 30341;
 const PASS = process.env.POWERI_WEB_PASSWORD ?? `poweri-${UI_USER}`;
-const auth = `Basic ${Buffer.from(`pi:${PASS}`).toString("base64")}`;
+const auth = `Basic ${Buffer.from(`${UI_USER}:${PASS}`).toString("base64")}`; // ticket 28：每用户账号（POWERI_WEB_USERS 默认 poweri-<user>）
 let passed = 0, failed = 0;
 const ok = (name, cond, extra = "") => {
   if (cond) { passed++; console.log(`✓ ${name}${extra ? " — " + extra : ""}`); }

@@ -177,11 +177,11 @@ execFileSync("kubectl", ["apply", "-f", "-"], { input: out.join("\n"), stdio: ["
 console.log(`✓ gateway 已部署（NodePort 31080）`);
 
 // ── 2c. PowerI-Web UI（ticket 27：单一网关模式壳，指向网关 Service；无 PVC——数据全在 worker 侧）──
-// 探针：全站 Basic Auth → exec probe 用 Secret 注入的 $POWERI_WEB_PASSWORD 认证，<500 即就绪
+// 探针：全站 Basic Auth → exec probe 用首用户凭据（$POWERI_WEB_USERS 首项），<500 即就绪
 if (UI) {
-  const probe = { exec: { command: ["node", "-e", "fetch('http://127.0.0.1:30141/',{headers:{Authorization:'Basic '+Buffer.from('pi:'+process.env.POWERI_WEB_PASSWORD).toString('base64')}}).then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"] }, initialDelaySeconds: 15, periodSeconds: 10, timeoutSeconds: 5 };
-  const uiUser = process.env.POWERI_UI_USER ?? users[0];
-  const uiPass = process.env.POWERI_WEB_PASSWORD ?? `poweri-${uiUser}`;
+  // ticket 28：每用户账号表（POWERI_WEB_USERS，默认 poweri-<user>）+ 网关用户表（token 解析）
+  const webUsers = process.env.POWERI_WEB_USERS ?? users.map((u) => `${u}:poweri-${u}`).join(";");
+  const probe = { exec: { command: ["node", "-e", `const u=process.env.POWERI_WEB_USERS.split(';')[0];const i=u.indexOf(':');const us=u.slice(0,i),pw=u.slice(i+1);fetch('http://127.0.0.1:30141/',{headers:{Authorization:'Basic '+Buffer.from(us+':'+pw).toString('base64')}}).then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))`] }, initialDelaySeconds: 15, periodSeconds: 10, timeoutSeconds: 5 };
   out.length = 0;
   out.push(`---
 apiVersion: apps/v1
@@ -201,6 +201,8 @@ spec:
           env:
             - { name: POWERI_GATEWAY_URL, value: "http://gateway.poweri.svc.cluster.local:8080" }
             - { name: POWERI_GATEWAY_CWD, value: "/workspace" }
+            - { name: POWERI_WEB_USERS, value: "${webUsers}" }
+            - { name: POWERI_GATEWAY_USERS, value: "${GW_USERS}" }
             - name: POWERI_GATEWAY_TOKEN
               valueFrom: { secretKeyRef: { name: poweri-secrets, key: POWERI_UI_TOKEN } }
             - name: POWERI_WEB_PASSWORD
@@ -224,7 +226,7 @@ spec:
   ports:
     - { port: 30141, targetPort: 30141, nodePort: 30341 }`);
   execFileSync("kubectl", ["apply", "-f", "-"], { input: out.join("\n"), stdio: ["pipe", "ignore", "inherit"] });
-  console.log(`✓ PowerI-Web UI 已部署（NodePort 30341，用户 ${uiUser}，密码 ${uiPass}）`);
+  console.log(`✓ PowerI-Web UI 已部署（NodePort 30341，账号 ${webUsers}）`);
 }
 
 // ── 2b. pi-web 可视化实例（ticket 21：每用户 Pod 挂该用户 PVC，与 worker 同一数据布局）──

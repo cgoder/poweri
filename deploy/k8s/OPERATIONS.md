@@ -85,7 +85,7 @@ node scripts/seed-skills.mjs alice,bob
 node scripts/verify-21.mjs alice,bob
 
 # 访问
-#   PowerI-Web UI（产品入口）: http://127.0.0.1:30341（用户 pi，密码 poweri-<uiUser>，可 POWERI_WEB_PASSWORD 覆盖；POWERI_UI_USER 选 token 用户）
+#   PowerI-Web UI（产品入口）: http://127.0.0.1:30341（每用户账号：alice/poweri-alice、bob/poweri-bob，ticket 28；POWERI_WEB_USERS 可覆盖）
 #   Web API（产品路径）     : 网关 http://127.0.0.1:31080/v1/chat（Bearer token-a/token-b）
 #   Worker 数据（PVC）    : kubectl exec deploy/worker-<user> -n poweri -- ls /home/piuser/.pi/agent/sessions
 ```
