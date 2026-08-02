@@ -35,10 +35,17 @@ npm run prototype:ux                          # （可选）同时跑旅程原�
 - [x] 会话创建 smoke：ensure_session（cwd:/workspace）→ 真实 sessionId（poweri-gw/agent）
 - [x] 隔离断言：Secret 含 PI_WEB_PASSWORD_ALICE/BOB；ConfigMap 无密码（仅模型名 poweri-gw）
 - [x] 数据一致性：piweb-alice 挂 alice-pvc / piweb-bob 挂 bob-pvc（与 worker 同一 PVC）
-- [ ] 单用户场景：多会话/多话题/多场景验证（浏览器）——原型实测中已产生 8 个真实会话（00:02–00:07）
+- [x] 业务 skill 播种（seed-skills.mjs：15 个轻量自包含技能）→ 进程内 pi 加载执行验证（verify-21）
+- [x] 会话落盘证据：pi-web 进程内会话 → PVC `sessions/--workspace--/<ts>_<uuid>.jsonl`（cwd:/workspace）
+- [ ] 单用户场景：多会话/多话题/多场景验证（浏览器）——原型实测已产生 8 个真实会话
 - [ ] 多用户场景：不同浏览器隔离验证（浏览器）
 - [x] 文档同步（deploy/k8s/README piweb 段）
 
 ## Answer
 
-（部署与自动化断言已完成；浏览器场景待用户体验后补充结论）
+部署与自动化断言全部通过（verify-21：认证 / 播种 15+ skill / 进程内 pi 发现并执行 humanizer-zh——工具事件读 SKILL.md，thinking 逐条应用其规则）。
+
+实测发现三个生产化注意点：
+1. **初始目录非预设**：pi-web 的 default-cwd 硬编码 `~/pi-cwd-<日期>` 一次性临时目录，选定的工作目录只存浏览器 localStorage，无服务端/环境变量预设开关 → 生产需接受每浏览器一次性选 `/workspace`，或小补丁改 default-cwd（ticket 17 禁的是 fork 成网关客户端，改默认目录不冲突）。
+2. **skill 加载与 UI 无关**：pi-web 的“技能”面板只有网络搜索入口，但运行时从 agent 目录扫描（~/.pi/agent/skills/）。播种子到 PVC 后进程内 pi 正常发现并执行；重技能（data-analyzer 等 2925 文件）同法播种，另需数据源/凭据。生产分发机制（镜像内置/ConfigMap/按需）待决策。
+3. **连接身份**：pi-web = 进程内 SDK 直接驱动 pi（旁路网关）；worker 链 = 网关→bridge→spawn pi RPC。两者共享同一 PVC 数据。判别法：会话文件名——pi-web 写 `sessions/<编码cwd>/<ts>_<uuid>.jsonl`，网关链写 `sessions/<网关id>.jsonl`。发现缺口：user-memory 扩展目前仅 bridge 用 `-e` 注入，pi-web 的进程内 pi 未挂（settings.json 无 extensions 配置，pi-web 镜像也无 /poweri/extensions）→ 跨入口记忆一致性需后续把扩展纳入 settings.json/镜像。

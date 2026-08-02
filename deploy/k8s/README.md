@@ -35,6 +35,16 @@ node scripts/gen-k8s.mjs alice,bob --piweb   # 追加生成 piweb-<user> Deploym
 
 生产化要素：密码进 Secret（`PI_WEB_PASSWORD_<USER>`，不进 ConfigMap）；全站 Basic Auth（无认证连接被重置）→ 探针用 exec probe（node fetch + `$PI_WEB_PASSWORD`）；非 root + 限额 cpu 1/mem 1Gi（进程内驱动 pi，比桥 512MB 宽裕）。pi-web 旁路网关（进程内 SDK 直接驱动 pi），测的是多实例隔离与真实 pi 并发；网关行为由 verify-05/06/09/16 覆盖。
 
+**业务 skill 播种**：pi-web 运行时从 agent 目录扫描 skill（与 UI 的“网络搜索”无关）。把宿主轻量自包含业务技能推进各用户 PVC，供 worker 与 pi-web 双入口加载：
+
+```bash
+node scripts/seed-skills.mjs alice,bob        # 15 个默认技能（code-review/tdd/humanizer-zh/ponytail 全家桶…）
+node scripts/seed-skills.mjs alice,bob data-analyzer,aliyun-cost   # 自定义技能（重技能另需数据源/凭据）
+node scripts/verify-21.mjs alice,bob          # 认证/播种/进程内 pi 加载执行 skill 全链路验证
+```
+
+已知限制：初始工作目录非预设（default-cwd 返回 `~/pi-cwd-<日期>` 临时目录，选定值仅存浏览器 localStorage）——首次打开需手动选 `/workspace`，同一浏览器后不再问；生产若需确定性目录可小补丁改 default-cwd。
+
 ## Worker 温池 + 自动伸缩（ticket 10，K8s 生产形态）
 
 PoC 已实测（docker 层，scripts/verify-10.mjs）：冷启动均值 ~194ms（OrbStack）、请求中途 Pod 故障后自动重建容器且会话不丢（数据在 per-user PVC）、`--rm` 无残留。
