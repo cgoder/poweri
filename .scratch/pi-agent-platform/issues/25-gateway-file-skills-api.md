@@ -16,6 +16,10 @@ Tags: gateway, bridge, k8s, pi-web-agegr, files, skills
 
 根因：fork 的 `/api/files/*`、`/api/file-index`、`/api/skills` 全部走 macOS 宿主文件系统并做 allowed-roots 校验，而工作区（`/workspace`）与技能（`/home/piuser/.pi/agent/skills`）实际都在 worker PVC 上。headless Chrome 复现确认：`/api/skills?cwd=/workspace` → 403（宿主 `/workspace` 不存在），`/api/file-index` → 404。
 
+## 补充：插件菜单（用户实测第二轮反馈）
+
+同样的 access denied 类问题：`/api/plugins` GET 走宿主 cwd 校验。网关分支直接返回 worker 的真实插件状态——**worker 无插件包体系**（技能走 seed-skills 播种、扩展走 `-e` 参数），即空列表 `{packages:[], totals:全 0, diagnostics:[], projectResourcesLoaded:true}`；POST（install/remove/update/disable/enable）明确返回「网关模式不支持插件管理」。侧栏四面板（模型/技能/插件/文件）至此全部网关接通。
+
 ## 实现（Web UI → 网关 → Worker 产品链路，只读）
 
 | 层 | 变更 |
