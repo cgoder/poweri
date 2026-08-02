@@ -5,7 +5,6 @@
 | 文件 | 镜像 | 归属 |
 |---|---|---|
 | `Dockerfile.poweri` | `poweri-worker:local` | Worker 沙箱（bridge + pi@0.83.0 + 扩展 + skills）——PowerI 本体 |
-| `Dockerfile.gateway` | `poweri-gateway:local` | 无状态网关（认证/路由/计量/续接）——独立业务模块 |
 
 > PowerI-Web（UI 壳）镜像在独立仓库 `poweri-web`（/Users/tianzhao/code/leoao/poweri-web）维护，不在本目录。
 
@@ -35,14 +34,15 @@ node scripts/build-image.mjs            # → poweri-worker:local（512MB，可�
 
 **运行资源实测**：本地镜像冷启动 273–639ms（容器创建→桥就绪）；销毁毫秒级无残留；单会话活跃内存 ~210MB（桥 58M + pi 152M），512MB 限额余 ~60%。镜像大小成本在存储与首拉带宽，不随运行波动。
 
-## Gateway 镜像（Dockerfile.gateway）
+## Gateway 镜像（独立仓库 poweri-gateway）
 
-无状态网关层（认证/路由/计量/账单）的容器形态，构建：
+无状态网关层（认证/路由/计量/账单）已拆为独立仓库 **/Users/tianzhao/code/leoao/poweri-gateway**（三模块：PowerI / poweri-gateway / PowerI-Web）。其 `Dockerfile.gateway` 与 `scripts/build-gateway.mjs` 在网关仓库内维护，构建产物 `poweri-gateway:local` 供本项目的 gen-k8s 部署引用：
 
 ```bash
-node scripts/build-gateway.mjs    # → poweri-gateway:local（约 150MB，node:24-bookworm-slim + 仅 ws 依赖）
+cd /Users/tianzhao/code/leoao/poweri-gateway && node scripts/build-gateway.mjs  # → poweri-gateway:local（247MB）
 ```
 
-- 多阶段：依赖层 `npm install --omit=dev`（锁 ws@^8.18），运行时层只拷 `gateway/*.mjs`（不含 test/node_modules）
+- 多阶段：依赖层 `npm install --omit=dev`（锁 ws@^8.18），运行时层只拷 `*.mjs`（不含 test/node_modules）
 - 非 root（内置 `node` 用户 uid 1000）；数据目录默认 `cwd/data`，镜像内预建并授权
+- 契约：`session-parse.mjs`（会话 DTO）以副本形式同步到本仓库 `bridge/session-parse.mjs`（worker 镜像内）
 - 部署：K8s Deployment + PVC + NodePort（`scripts/gen-k8s.mjs`，见 `deploy/k8s/README.md`）；密钥经 Secret 注入（`POWERI_GATEWAY_USERS`、worker 侧 `POWERI_AI_API_KEY`）

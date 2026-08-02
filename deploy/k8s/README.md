@@ -96,7 +96,7 @@ node scripts/verify-k8s.mjs            # 多用户隔离 / 会话落 PVC / Pod �
 
 `node scripts/gen-k8s.mjs [users]` 现同时部署无状态网关层：
 
-- `gateway` Deployment（镜像 `poweri-gateway:local`，见 `deploy/docker/Dockerfile.gateway`，构建：`node scripts/build-gateway.mjs`）
+- `gateway` Deployment（镜像 `poweri-gateway:local`，Dockerfile 在独立仓库 poweri-gateway（/Users/tianzhao/code/leoao/poweri-gateway），构建：`node scripts/build-gateway.mjs`）
   - 数据挂独立 `gateway-pvc`（meta/计量持久；多副本水平扩展需共享元数据存储，生产换数据库，见 `gateway/store.mjs` 注释）
   - 内部经 Service DNS 路由到 worker：`POWERI_K8S_USERS="alice:worker-alice.poweri.svc.cluster.local:8081"`（k8s provider 支持 host:port 形式，开发机场景仍可 `alice:30081` NodePort + `POWERI_K8S_NODE_HOST`）
 - `gateway` Service：NodePort 31080（集群内 `gateway.poweri.svc.cluster.local:8080`）

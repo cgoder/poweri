@@ -41,7 +41,7 @@ node scripts/verify-06.mjs B   # docker + 真实 pi 全链路（流式/续接/�
 node scripts/gen-k8s.mjs alice,bob   # ConfigMap 播种 + Secret 注入（密钥不进 ConfigMap）
 node scripts/verify-k8s.mjs          # 多用户隔离 / 会话落 PVC / Pod 重建续接
 # 5. 生产形态（ticket 19）：gateway 也进 K8s + 密钥 Secret 化全链路
-node scripts/build-gateway.mjs       # → poweri-gateway:local
+# gateway 独立仓库 /Users/tianzhao/code/leoao/poweri-gateway：node scripts/build-gateway.mjs → poweri-gateway:local
 node scripts/verify-19.mjs alice     # 部署 gateway+worker、ConfigMap 无明文密钥、真实模型回复
 # 6. PowerI-Web（产品 UI 壳，独立仓库）：浏览器 → 网关 → Worker → 真实 pi
 #    部署：node scripts/gen-k8s.mjs alice,bob --ui → http://127.0.0.1:30341（账号 alice/poweri-alice）

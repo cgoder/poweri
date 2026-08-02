@@ -1,5 +1,14 @@
 # Agent Platform Context
 
+## 项目结构（三模块，2026-08）
+
+1. **PowerI**（本仓库）：Worker 沙箱（bridge + pi + 扩展 + skills）+ 控制面（gen-k8s 部署编排、K8s manifests、验证脚本、ADR）
+2. **poweri-gateway**（独立仓库 /Users/tianzhao/code/leoao/poweri-gateway）：无状态网关（认证/路由/计量/续接/会话管理 API）
+3. **PowerI-Web**（独立仓库 /Users/tianzhao/code/leoao/poweri-web）：用户交互 UI（网关模式壳）
+
+数据流：浏览器 → PowerI-Web → poweri-gateway → Worker（bridge → pi）→ 模型。
+
+
 A multi-tenant platform (~10k users) that serves each user's requests (chat, tools, other agent work) through a routing gateway into containerized worker pods that run pi (pi-coding-agent). Hard requirement: per-user data must never be lost and never mixed between users.
 
 ## Language
