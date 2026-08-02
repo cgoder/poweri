@@ -24,6 +24,17 @@ securityContext:
 ```
 磁盘限额由 per-user PVC 的 capacity 管辖（ADR-0001）。
 
+## pi-web 可视化实例（ticket 21，K8s 生产化形态）
+
+每用户一个 pi-web Pod（ticket 15 方案 A 的 K8s 形态），挂载该用户 PVC 的 `pi-agent` 与 `workspace` 子路径——与 worker 完全同一数据布局，会话/工作区/记忆跨入口一致。
+
+```bash
+node scripts/gen-k8s.mjs alice,bob --piweb   # 追加生成 piweb-<user> Deployment + NodePort(30241起)
+# 浏览器：http://127.0.0.1:30241（alice）/ 30242（bob），用户 pi，密码 poweri-<user>（Secret 注入）
+```
+
+生产化要素：密码进 Secret（`PI_WEB_PASSWORD_<USER>`，不进 ConfigMap）；全站 Basic Auth（无认证连接被重置）→ 探针用 exec probe（node fetch + `$PI_WEB_PASSWORD`）；非 root + 限额 cpu 1/mem 1Gi（进程内驱动 pi，比桥 512MB 宽裕）。pi-web 旁路网关（进程内 SDK 直接驱动 pi），测的是多实例隔离与真实 pi 并发；网关行为由 verify-05/06/09/16 覆盖。
+
 ## Worker 温池 + 自动伸缩（ticket 10，K8s 生产形态）
 
 PoC 已实测（docker 层，scripts/verify-10.mjs）：冷启动均值 ~194ms（OrbStack）、请求中途 Pod 故障后自动重建容器且会话不丢（数据在 per-user PVC）、`--rm` 无残留。
