@@ -2,6 +2,7 @@
 // 前置：fork 以网关模式运行（POWERI_GATEWAY_URL/TOKEN/CWD），网关/worker 已部署（ticket 23）
 // 运行：node scripts/verify-24.mjs
 import { execFileSync } from "node:child_process";
+import { createParser } from "eventsource-parser";
 
 const BASE = "http://127.0.0.1:30161";
 const AUTH = "Basic " + Buffer.from("pi:poweri-alice").toString("base64");
@@ -26,19 +27,16 @@ async function promptAndWait(sid, message, timeoutMs = 180_000) {
   const reader = evRes.body.getReader();
   const decoder = new TextDecoder();
   const events = [];
-  let buf = "";
+  // 增量 SSE 解析走 eventsource-parser（业界标准），不手撸切帧
+  const parser = createParser({ onEvent: (msg) => {
+    try { events.push(JSON.parse(msg.data)); } catch { /* 非 JSON data 帧忽略 */ }
+  } });
   void (async () => {
     try {
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        let idx;
-        while ((idx = buf.indexOf("\n\n")) >= 0) {
-          const line = buf.slice(0, idx).replace(/^data: /, "");
-          buf = buf.slice(idx + 2);
-          if (line.trim()) { try { events.push(JSON.parse(line)); } catch {} }
-        }
+        parser.feed(decoder.decode(value, { stream: true }));
       }
     } catch { /* abort 后正常退出 */ }
   })();

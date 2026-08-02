@@ -10,5 +10,8 @@
     "verify:09": "node scripts/verify-09.mjs",
     "build:gateway": "node scripts/build-gateway.mjs",
     "verify:19": "node scripts/verify-19.mjs"
+  },
+  "dependencies": {
+    "eventsource-parser": "^3.1.0"
   }
 }

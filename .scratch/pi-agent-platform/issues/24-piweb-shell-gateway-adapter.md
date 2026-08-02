@@ -58,7 +58,7 @@ fork pi-web (agegr) v0.8.6，新增 `RemoteAgentClient`（实现 `AgentSessionLi
 
 ### 实现（改动全部在 .research-tmp/agegr-pi-web，补丁存档 docs/research/piweb-gateway-adapter.patch 可重放）
 
-- **lib/gateway-client.ts（新，核心）**：`GatewaySessionClient` 实现路由/hooks 实际使用的会话表面（send/onEvent/isAlive/sessionId/waitUntilReady）；`send()` 命令分发表——prompt → 网关 `/v1/chat` SSE（fire-and-forget，ready 事件后 resolve 返回真实 sessionId）、abort → WS `/v1/ws`、get_state/get_session_stats/get_last_assistant_text 本地推导；chat 外命令（fork/compact/bash/模型切换等）安全默认 null（`ponytail:` 标注）。纯函数：`parseSseFrame`/`translateGatewayEvent`（剥 ready/prompt ack/assistantMessageEvent 增量包装）/`gatewayMessageToUi`。
+- **lib/gateway-client.ts（新，核心）**：`GatewaySessionClient` 实现路由/hooks 实际使用的会话表面（send/onEvent/isAlive/sessionId/waitUntilReady）；`send()` 命令分发表——prompt → 网关 `/v1/chat` SSE（fire-and-forget，ready 事件后 resolve 返回真实 sessionId）、abort → WS `/v1/ws`、get_state/get_session_stats/get_last_assistant_text 本地推导；chat 外命令（fork/compact/bash/模型切换等）安全默认 null（`ponytail:` 标注）。纯函数：`parseSseFrame`（eventsource-parser 适配器，单测契约）/`translateGatewayEvent`（剥 ready/prompt ack/assistantMessageEvent 增量包装）/`gatewayMessageToUi`。SSE 解析用 `eventsource-parser` v3.1.0（ADR-0009 成熟开源优先，Vercel AI SDK 同款），不手撸切帧。
 - **lib/rpc-manager.ts**：startRpcSession 网关分支（enabled 时返回 GatewaySessionClient，session_created 事件补注册真实 msb* id）。
 - **lib/session-reader.ts**：网关模式 listAllSessions（/v1/sessions）+ resolveSessionPath（合成路径 + 缓存）。
 - **路由补丁**：sessions/[id] 历史经网关（context.messages 直构）、agent/new sessionId 动态化 + cwd 短路（工作区在 worker PVC，宿主无 /workspace）、models 快路径（不初始化宿主 SDK）、default-cwd → /workspace（免首开选目录，ticket 21 发现的生产缺口顺手补）。

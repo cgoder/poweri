@@ -206,15 +206,17 @@ index 0000000..7ba78c1
 +});
 diff --git a/lib/gateway-client.ts b/lib/gateway-client.ts
 new file mode 100644
-index 0000000..c82527a
+index 0000000..3926ec1
 --- /dev/null
 +++ b/lib/gateway-client.ts
-@@ -0,0 +1,290 @@
+@@ -0,0 +1,287 @@
 +// PowerI 网关会话客户端：实现 pi-web (agegr) 路由/hooks 实际使用的会话表面（send/onEvent/isAlive/sessionId…），
 +// 后端走网关 API（POST /v1/chat SSE + WS /v1/ws + GET /v1/sessions + /v1/sessions/<id>/messages）。
 +// 不实现 AgentSessionLike 全接口——chat 范围外命令返回安全默认（见 send 的 default 分支）。
 +// PowerI 网关模式配置：同时设置 POWERI_GATEWAY_URL + POWERI_GATEWAY_TOKEN 时启用。
 +// 启用后本 fork 变为纯壳：会话/对话全部经网关 → PowerI Worker 链（ticket 24 scoped pilot）。
++import { createParser } from "eventsource-parser";
++
 +export const gatewayConfig = {
 +  enabled: Boolean(process.env.POWERI_GATEWAY_URL && process.env.POWERI_GATEWAY_TOKEN),
 +  baseUrl: process.env.POWERI_GATEWAY_URL ?? "",
@@ -237,15 +239,14 @@ index 0000000..c82527a
 +
 +// ── 纯函数（单测覆盖）───────────────────────────────────────────────
 +
-+/** SSE 帧 → {event, data}；非 data 帧/空帧返回 null */
++/** SSE 帧 → {event, data}；非 data 帧/空帧返回 null（基于 eventsource-parser，单测契约） */
 +export function parseSseFrame(frame: string): { event: string; data: string } | null {
-+  let event = "message";
-+  let data = "";
-+  for (const line of frame.split("\n")) {
-+    if (line.startsWith("event:")) event = line.slice(6).trim();
-+    else if (line.startsWith("data:")) data += line.slice(5).trim();
-+  }
-+  return data ? { event, data } : null;
++  let result: { event: string; data: string } | null = null;
++  const parser = createParser({ onEvent: (msg) => {
++    result = { event: msg.event ?? "message", data: msg.data };
++  } });
++  parser.feed(frame + "\n\n");
++  return result;
 +}
 +
 +/** 网关 SSE 数据帧 → pi-web 事件（透传 pi 事件；剥 ready/prompt ack/空帧/assistantMessageEvent 包装） */
@@ -353,17 +354,14 @@ index 0000000..c82527a
 +        if (!res.ok || !res.body) throw new Error(`gateway /v1/chat HTTP ${res.status}`);
 +        const reader = res.body.getReader();
 +        const decoder = new TextDecoder();
-+        let buf = "";
++        // 增量 SSE 解析走 eventsource-parser（业界标准，Vercel AI SDK 同款），不手撸切帧
++        const parser = createParser({ onEvent: (msg) => {
++          this.handleFrame({ event: msg.event ?? "message", data: msg.data });
++        } });
 +        for (;;) {
 +          const { done, value } = await reader.read();
 +          if (done) break;
-+          buf += decoder.decode(value, { stream: true });
-+          let idx;
-+          while ((idx = buf.indexOf("\n\n")) >= 0) {
-+            const frame = buf.slice(0, idx);
-+            buf = buf.slice(idx + 2);
-+            this.handleFrame(frame);
-+          }
++          parser.feed(decoder.decode(value, { stream: true }));
 +        }
 +      } catch (err) {
 +        this.resolveSessionCreated();
@@ -387,12 +385,11 @@ index 0000000..c82527a
 +    }
 +  }
 +
-+  private handleFrame(frame: string): void {
-+    const parsed = parseSseFrame(frame);
-+    if (!parsed) return;
++  private handleFrame(frame: { event: string; data: string }): void {
++    if (!frame.data) return;
 +    let obj: unknown;
-+    try { obj = JSON.parse(parsed.data); } catch { return; }
-+    if (parsed.event === "ready") {
++    try { obj = JSON.parse(frame.data); } catch { return; }
++    if (frame.event === "ready") {
 +      const sid = (obj as { sessionId?: string })?.sessionId;
 +      if (sid) {
 +        this.sessionId = sid;
@@ -582,3 +579,15 @@ index 6c0da25..f6c2bb5 100644
    const generation = globalThis.__piSessionListGeneration ?? 0;
  
    // Return cached result if still fresh (avoids re-scanning session files
+diff --git a/package.json b/package.json
+index 03966a4..4a2cef6 100644
+--- a/package.json
++++ b/package.json
+@@ -41,6 +41,7 @@
+     "@earendil-works/pi-ai": "0.83.0",
+     "@earendil-works/pi-coding-agent": "0.83.0",
+     "@earendil-works/pi-tui": "0.83.0",
++    "eventsource-parser": "^3.1.0",
+     "next": "16.2.12",
+     "proper-lockfile": "4.1.2",
+     "react": "^19.2.4",
