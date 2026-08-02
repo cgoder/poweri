@@ -13,7 +13,7 @@
 
 ## 0. 结论速览
 
-**判断：pi-web 0.8.6 是优秀的"每用户交互式工作区 UI"，但不是 10k 用户产品 chat 业务入口的现成答案。**
+**判断：pi-web 0.8.6 是优秀的"每用户交互式工作区 UI"，但不是 10k 用户产品 chat 业务入口的现成答案。**（社区生态补充调研——含 jmfederico/lemotw 两个血缘、"连接远程 pi"的真实机制与 A′ 路线——见文末**附录**。）
 
 - **chat 体验面（故事 1-10）**：原生全覆盖 —— 多会话/续接/流式/文件/工具，源码实证。作为"用户浏览器里的 pi 工作台"完全合格。
 - **平台面（故事 11-38 中的计量/账单/管理员/弹性/网关路由）**：pi-web **完全没有**，且其架构**必然旁路网关**（进程内 SDK 直驱 pi，`lib/rpc-manager.ts`），网关无法计量它产生的 token/成本 → 故事 16/33/34 直接不成立。
@@ -367,6 +367,8 @@ pi-web 自有：`PI_WEB_PASSWORD`、`PI_WEB_HOSTNAME`、`PI_WEB_ALLOWED_HOSTS`�
 
 ### 9.2 推荐
 
+> 注：2026-08-02 社区生态补充调研后，新增 A′（sessiond 分裂形态）候选与 C 的 UI 参照系升级，见文末附录 §C/D。
+
 - **保留路线 A**：pi-web 每用户实例继续作为交互可视化/联调/演示入口（现状，改造成本≈0）。
 - **产品 chat 业务入口走路线 C**：新建/续建轻量 Web UI 直连网关（复用 `prototype/ux-journey` 的 6 旅程要素实现），网关补"会话列表/历史"API（k8s provider 下修复或新增，ticket 20 已发现坏点）。文件/配置/技能类功能按产品阶段决策，不进一期 chat。
 - **路线 B 冻结**（维持 ticket 17 决策）：除非产品明确要求 pi-web 全套工作区 UI 作为产品界面，否则不 fork。
@@ -389,3 +391,38 @@ pi-web 自有：`PI_WEB_PASSWORD`、`PI_WEB_HOSTNAME`、`PI_WEB_ALLOWED_HOSTS`�
 - 全部 API 路由逐个阅读源码；env 变量与 localStorage 键为全库 grep 结果。
 - pi SDK：读宿主 `node_modules/@earendil-works/pi-coding-agent`（0.83.0）的 `docs/rpc.md`、`docs/settings.md`、`dist/core/sdk.d.ts`、`dist/core/session-manager.js`、`dist/modes/rpc/*`、`dist/rpc-entry.js`。
 - 未运行 pi-web 本体（只读调研）；运行态事实引用 ticket 15/20/21 的既有实测。
+
+---
+
+# 附：社区生态补充调研 —— 三个血缘与"连接远程 pi"的真实机制（2026-08-02 追加）
+
+> 触发：用户提出社区有人"拿 pi-web 做用户交互界面，连接本地 PC 上运行的 pi Coding Agent 去操作、修改代码工程"，问这是否符合本项目预期的用户场景。主仓库（agegr）源码级排查未发现任何远程连接能力（进程内 SDK 是唯一路径），因此对社区 fork 生态做了补充调研，以核实该场景的**真实机制**。
+
+## A. 三个血缘（全部 MIT、上游活跃）
+
+| 血缘 | 技术栈 / 版本 | 关键机制 | 与本项目关系 |
+|---|---|---|---|
+| **agegr/pi-web**（主线） | Next.js + 进程内 SDK（0.8.6） | 共享 agent 目录；会话在 web server 进程内，浏览器断开即停 | 已在用（ticket 15/21） |
+| **jmfederico/pi-web** | Fastify + **sessiond** + node-pty（1.202607.3） | **分裂进程**：独立 sessiond 守护进程承载 pi 会话（`src/server/sessions/piSessionService.ts:699` 调 `createAgentSessionFromServices`，进程内 SDK 但跑在 daemon 进程），web 服务经 HTTP/Unix socket（`src/sessiond/sessionDaemonClient.ts`）代理；**会话脱离浏览器存活**；**远程优先**（浏览器→web→sessiond）；**fleet/machines**（浏览器端实例注册其他运行时为远程机器并代理项目/文件/git/会话/终端）；docker 分裂部署（`docker/compose.yml`：sessiond+web 两服务，`PI_CODING_AGENT_DIR=/data/pi-agent`、`PI_WEB_SESSIOND_SOCKET=/data/pi-web/sessiond.sock`）；pi 兼容 `>=0.82.1 <0.83`（覆盖本项目锁定的 0.83.0）；自带真实终端、插件 API、Pi package 管理 | **与"每用户实例 + 服务器运行 + 浏览器监督"形态最接近** |
+| **lemotw/pi-web**（@ygncode/pi-web） | Go HTTP server（beta） | **镜像-控制模型**：pi（终端）写 JSONL → Go server 读取渲染 + SSE 实时镜像（fsnotify 毫秒级刷新）；浏览器发起聊天用 `pi --mode rpc` 子进程（每会话一个，10min 空闲回收）；注册 `/web`（当前会话开进浏览器）`/remote`（Tailscale QR 远程访问）`/refresh`（远端浏览器消息回写终端会话）命令 | "**UI 控制运行中的 pi Coding Agent**"的最直接实现 |
+
+## B. K8s 先例（与本项目架构直接对应）
+
+jmfederico 仓库 [issue #56 "Monitoring Remote Sessions"](https://github.com/jmfederico/pi-web/issues/56)：使用者把 pi-web 跑在 **K8s 集群**内，用 [kubernetes-sigs/agent-sandbox](https://github.com/kubernetes-sigs/agent-sandbox) CRD 拉起 Pod 执行编排任务，**会话目录整卷挂载**（PV 同时挂进编排机与沙箱 Pod），询问远程会话监控与 Pod 生命周期后的会话留存问题。→ "Web UI + K8s 每任务 Pod + PVC 挂载会话"的形态社区已有人在跑，与本项目（每用户 Pod + PVC）同构。
+
+## C. 对路线结论的修正（结合 §6/§9）
+
+- **A → A′ 演进**：每用户实例可演进为 jmfederico 的 sessiond 分裂形态（会话存活/终端/远程浏览器/舰队），仍是每用户 Pod；"旁路网关 → 网关计量不到"的架构结论**不变**（其会话仍跑在实例内，token/成本不进网关）。
+- **C 不变**：平台计量/弹性/账单/多租户仍需网关侧 UI（本项目 C 路线），但 C 的 UI 可直接借鉴 jmfederico 的会话/舰队 UX 与 lemotw 的实时镜像机制。
+- **新认知**：社区已验证"Web UI + 服务器端 agent 运行时 + 每用户数据"形态在 K8s 可落地；jmfederico 的 fleet/machines（浏览器端实例代理多个运行时）与"网关代理每用户 Worker"在形态上**收敛**，但计量/账单/多租户仍缺席（其 docker README 明言信任模型"非沙箱、不适合非信任多租户"）。
+
+## D. 修订后的推荐（追加）
+
+1. 产品 chat 入口仍推荐 **C**（平台语义完整）；UI 参照物升级为：agegr（工作区体验）+ jmfederico（会话存活/舰队）+ lemotw（实时镜像/远程）。
+2. 若产品接受"每用户运行时 + 会话存活 + 舰队"形态（计量改为运行时侧采集），**A′（jmfederico 或其 sessiond 模式）是最接近用户意图的现成实现**，可作为试点验证（注意：1.202607.3 beta、上游变化快、非多租户、docker 为 beta）。
+3. 决策点新增：**A′ 试点**（jmfederico 进 K8s 每用户 Pod）与 **C 的 UI 参照系**（是否把 jmfederico 的 UX 作为产品 UI 基线而非自研）——两者都需用户拍板。
+
+## E. 补充调研方法声明
+
+- 来源：`git clone https://github.com/jmfederico/pi-web`（src/sessiond/、src/server/sessions/piSessionService.ts、docker/compose.yml、README.md，tag main）；`git clone https://github.com/lemotw/pi-web`（README.md、internal/rpc/）；jmfederico/pi-web issue #56；网页检索（README.zh-CN 等）。
+- 未运行任何 fork 本体；运行态事实仍引用 ticket 15/20/21 实测。
