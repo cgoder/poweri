@@ -1,7 +1,7 @@
 # 24 — pi-web (agegr) 壳提炼：RemoteAgentClient 对接网关（scoped route B 试点）
 
 Type: task
-Status: claimed
+Status: resolved
 Blocked by: 23
 Created: 2026-08-02
 Tags: pi-web-agegr, gateway, adapter, pilot
@@ -45,11 +45,52 @@ fork pi-web (agegr) v0.8.6，新增 `RemoteAgentClient`（实现 `AgentSessionLi
 
 ## 检查清单
 
-- [ ] clone agegr/pi-web v0.8.6 + npm install（本机跑，无需新镜像）
-- [ ] RemoteAgentClient（AgentSessionLike 实现，走网关 API）
-- [ ] startRpcSession 换驱动 + session-reader 换网关
-- [ ] 单元测试（映射函数）+ verify-24.mjs
-- [ ] 6 项验证点全过
-- [ ] code-review（双轴）+ Answer + resolved
+- [x] clone agegr/pi-web v0.8.6 + npm install（本机跑，无需新镜像）
+- [x] RemoteAgentClient（GatewaySessionClient，走网关 API）
+- [x] startRpcSession 换驱动 + session-reader 换网关
+- [x] 单元测试（映射函数 5/5）+ verify-24.mjs（14 项）
+- [x] 6 项验证点全过（会话树/流式/续接/并行/记忆/计量）
+- [x] code-review（双轴）+ Answer + resolved
+
+## Answer
+
+**结论：scoped route B（pi-web (agegr) 壳提炼 → 网关 → worker）可行且已验证。** fork 以网关模式跑在宿主机（30161），前端 chat 全能力驱动 worker 链真实 pi（0.83.0），verify-24 14 项全过 + 单测 5/5。DeepWiki Q4 的剥离方案成立，前提缺口由 PowerI 栈补齐。
+
+### 实现（改动全部在 .research-tmp/agegr-pi-web，补丁存档 docs/research/piweb-gateway-adapter.patch 可重放）
+
+- **lib/gateway-client.ts（新，核心）**：`GatewaySessionClient` 实现路由/hooks 实际使用的会话表面（send/onEvent/isAlive/sessionId/waitUntilReady）；`send()` 命令分发表——prompt → 网关 `/v1/chat` SSE（fire-and-forget，ready 事件后 resolve 返回真实 sessionId）、abort → WS `/v1/ws`、get_state/get_session_stats/get_last_assistant_text 本地推导；chat 外命令（fork/compact/bash/模型切换等）安全默认 null（`ponytail:` 标注）。纯函数：`parseSseFrame`/`translateGatewayEvent`（剥 ready/prompt ack/assistantMessageEvent 增量包装）/`gatewayMessageToUi`。
+- **lib/rpc-manager.ts**：startRpcSession 网关分支（enabled 时返回 GatewaySessionClient，session_created 事件补注册真实 msb* id）。
+- **lib/session-reader.ts**：网关模式 listAllSessions（/v1/sessions）+ resolveSessionPath（合成路径 + 缓存）。
+- **路由补丁**：sessions/[id] 历史经网关（context.messages 直构）、agent/new sessionId 动态化 + cwd 短路（工作区在 worker PVC，宿主无 /workspace）、models 快路径（不初始化宿主 SDK）、default-cwd → /workspace（免首开选目录，ticket 21 发现的生产缺口顺手补）。
+- **测试**：lib/gateway-client.test.mjs 5 用例（真实网关帧 fixture）；scripts/verify-24.mjs 14 项。
+
+### 关键发现
+
+1. **前端事件面与网关 SSE 天然同构**（都是 pi RPC 事件族）——message_update 需剥 `assistantMessageEvent` 增量包装只留累积 `message`（与 pi-web 期望形状一致，实测帧确认）。
+2. **写盘滞后**：prompt_done（流结束）后，worker 的 JSONL 落盘滞后数秒——历史查询需轮询（verify 用 historyCount）。
+3. **cwd 分离**：壳的 cwd 校验必须短路（工作区在 worker PVC）；default-cwd 预设 /workspace。
+4. **计量完整保留**：本次对话在网关 admin usage 有增量记录——这是 A/A′（旁路网关）做不到的，scoped B 的核心价值。
+5. **模型单一**：poweri-gw/agent（worker PVC models.json），模型切换 stub（send 默认 null）。
+
+### 对 A′/B/C 决策的影响
+
+- **壳提炼 = 可工程化**：缝线（AgentSessionLike/wrapper 表面）验证干净，改动量≈本 pilot（1 个 client + 4 个路由 + 测试），chat 全能力 + 计量 + 按需 worker（ADR-0004）兼得。
+- **全套工作区**（文件/终端/git/分支/模型切换）仍需网关补 API 族（研究 §6.2）——产品 chat 入口可用 scoped B/C，工作区功能二期。
+- **A′（jmfederico sessiond）**仍是「免改造壳」路线（worker 上跑 sessiond 即可），但计量/版本错位不变——B 是唯一兼顾计量与壳体验的路径。
+
+### 已知债务（ponytail）
+
+- 模型切换/auto-name/分支树为 stub（send 安全默认 + inner no-op；intra-session tree:[]）——chat 范围外。
+- fork 注释中英混用（本 repo 中文标准 vs fork 英文约定）——pilot 接受，正式 fork 前定调。
+- 事件订阅间 300ms drain 防串流（verify 内）；生产版需要订阅引用计数。
+
+### 运行方式
+
+```bash
+cd .research-tmp/agegr-pi-web
+export POWERI_GATEWAY_URL=http://127.0.0.1:31080 POWERI_GATEWAY_TOKEN=token-a POWERI_GATEWAY_CWD=/workspace PI_WEB_PASSWORD=poweri-alice
+npx next start -H 127.0.0.1 -p 30161
+# 浏览器 http://127.0.0.1:30161（pi / poweri-alice）
+```
 
 ## Comments
