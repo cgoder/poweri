@@ -1,7 +1,7 @@
 # 29 — 会话管理 API 补齐（改名/删除）+ 计量用户侧展示
 
 - **Type:** task
-- **Status:** ready
+- **Status:** claimed
 - **Blocked by:**
 - **Depends on:**
 
