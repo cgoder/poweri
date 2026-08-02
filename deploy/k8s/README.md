@@ -1,11 +1,22 @@
 # 部署 manifests（k8s）
 
-现状（ticket 19 已收口）：
+## 三模块部署关系（2026-08 架构对齐）
 
-- `gateway` 无状态网关层 Deployment + Service + NodePort（见下方 Gateway 部署）
-- `worker` Worker Pod Deployment（含温池 + 自动伸缩，ticket 10）
-- `networkpolicy.yaml` 出站仅放行模型 API 与存储（ticket 07）
-- `pvc/` per-user PVC 供给与 StorageClass（ticket 04）
+三模块各自独立编译 / 独立生成镜像 / 独立容器，K8s 部署形态**归各项目仓库自描述**，本仓库（PowerI）是控制面：`gen-k8s.mjs` 聚合一键部署（生成 per-user worker 模板 + Secret/ConfigMap，并**聚合引用** gateway/Web 的 manifest）：
+
+| 模块 | 仓库 | 镜像 | K8s manifest 归属 |
+|---|---|---|---|
+| PowerI（Worker） | 本仓库 | `poweri-worker:local`（Dockerfile.poweri） | per-user 模板在 `scripts/gen-k8s.mjs`（参数化：用户/端口/token） |
+| poweri-gateway | /Users/tianzhao/code/leoao/poweri-gateway | `poweri-gateway:local`（Dockerfile.gateway） | `deploy/k8s/gateway.yaml`（Deployment+PVC+Service 31080，${K8S_USERS} 占位符） |
+| PowerI-Web | /Users/tianzhao/code/leoao/poweri-web | `poweri-web:local`（Dockerfile） | `deploy/k8s/poweri-web.yaml`（Deployment+Service 30341，${WEB_USERS}/${GW_USERS} 占位符） |
+
+聚合一键部署：`POWERI_AI_API_KEY=<key> node scripts/gen-k8s.mjs alice,bob --ui`（注入占位符 + 生成 Secret + apply）。单仓库独立部署见各仓库 README 的 K8s 章节。
+
+## 本目录文件
+
+- `networkpolicy.yaml` 出站仅放行模型 API 与存储（ticket 07，enforcement 需 Cilium）
+- `hpa.yaml` worker 自动伸缩（ticket 30 实跑：负载 1→2 扩容）
+- `OPERATIONS.md` 运维操作手册
 
 本地验证环境：macOS + OrbStack（含 K8s 集成），用于最小端到端 PoC（ticket 13）。
 

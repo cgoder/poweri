@@ -1,4 +1,5 @@
-// 生成并应用 K8s 资源（ticket 16 PoC：每用户 PVC + worker Deployment + NodePort Service；ticket 21：--piweb 追加每用户 pi-web 实例；ticket 27：--ui 部署 PowerI-Web 网关模式壳）
+// 生成并应用 K8s 资源（ticket 16 PoC：每用户 PVC + worker Deployment + NodePort Service；ticket 27：--ui 部署 PowerI-Web 网关模式壳）
+// 三模块架构（2026-08）：worker 模板本仓库自持（参数化）；gateway/Web 的 manifest 归各自独立仓库（deploy/k8s/），此处聚合引用（注入占位符 + Secret/ConfigMap）
 // 用法：node scripts/gen-k8s.mjs [alice,bob,...] [--piweb|--piweb2|--ui]   （默认 alice,bob；worker nodePort 从 30081 起；piweb 30241 起；jmfederico 30251 起；ui 30341）
 // 前置：OrbStack K8s 已启用；poweri-worker:local 镜像可拉（OrbStack 共享镜像）；项目 deploy/config/pi 有 gen-pi-config 生成的 models.json/settings.json（或 POWERI_PI_CONFIG_DIR 指定）
 // 配置播种：ConfigMap 由 pi 配置生成，initContainer 复制进各用户 PVC（每用户隔离副本，可各自在界面改）
@@ -19,6 +20,15 @@ const IMAGE = process.env.POWERI_POD_IMAGE ?? "poweri-worker:local";
 const MODEL = process.env.POWERI_AI_MODEL ?? "agent";
 const GW_USERS = process.env.POWERI_GATEWAY_USERS ?? "alice:token-a;bob:token-b";
 const CONFIG_SRC = process.env.POWERI_PI_CONFIG_DIR || path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "deploy", "config", "pi");
+// 三模块独立仓库路径（gateway/Web 的 K8s manifest 归各自仓库自描述，控制面聚合引用）
+const GW_DIR = process.env.POWERI_GATEWAY_DIR || "/Users/tianzhao/code/leoao/poweri-gateway";
+const WEB_DIR = process.env.POWERI_WEB_DIR || "/Users/tianzhao/code/leoao/poweri-web";
+// 读模板 manifest 并替换占位符 ${KEY}（值来自本脚本运行时计算）
+const applyManifest = (file, vars) => {
+  const raw = readFileSync(file, "utf8");
+  const yaml = raw.replace(/\$\{([A-Z0-9_]+)\}/g, (_, k) => vars[k] ?? "");
+  execFileSync("kubectl", ["apply", "-f", "-"], { input: yaml, stdio: ["pipe", "ignore", "inherit"] });
+};
 
 const run = (args) => execFileSync("kubectl", args, { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
 
@@ -126,114 +136,19 @@ spec:
 execFileSync("kubectl", ["apply", "-f", "-"], { input: out.join("\n"), stdio: ["pipe", "ignore", "inherit"] });
 console.log(`✓ 资源已应用：${users.map((u) => `worker-${u} (nodePort ${NODE_PORT_BASE + users.indexOf(u)})`).join(", ")}`);
 
-// ── 3. gateway：Deployment + PVC + NodePort Service（ticket 19 部署形态）──
+// ── 3. gateway：manifest 归独立仓库（poweri-gateway/deploy/k8s/gateway.yaml），此处聚合引用 ──
 // 数据挂独立 PVC（meta/计量不丢）；多副本水平扩展需共享元数据存储（生产：数据库，store.mjs 注释）
 const k8sUsers = users.map((u) => `${u}:worker-${u}.${NS}.svc.cluster.local:8081`).join(";");
-out.length = 0;
-out.push(`---
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata: { name: gateway-pvc, namespace: ${NS} }
-spec:
-  accessModes: [ReadWriteOnce]
-  resources: { requests: { storage: 1Gi } }
----
-apiVersion: apps/v1
-kind: Deployment
-metadata: { name: gateway, namespace: ${NS} }
-spec:
-  replicas: 1
-  selector: { matchLabels: { app: poweri, role: gateway } }
-  template:
-    metadata: { labels: { app: poweri, role: gateway } }
-    spec:
-      containers:
-        - name: gateway
-          image: poweri-gateway:local
-          imagePullPolicy: IfNotPresent
-          ports: [{ containerPort: 8080 }]
-          # 网关轻量：requests 100m/128Mi，limits 1/512Mi
-          resources:
-            requests: { cpu: 100m, memory: 128Mi }
-            limits: { cpu: "1", memory: 512Mi }
-          env:
-            - { name: POWERI_GATEWAY_PORT, value: "8080" }
-            - { name: POWERI_POD_PROVIDER, value: "k8s" }
-            - { name: POWERI_K8S_USERS, value: "${k8sUsers}" }
-            - name: POWERI_GATEWAY_USERS
-              valueFrom: { secretKeyRef: { name: poweri-secrets, key: POWERI_GATEWAY_USERS } }
-            - { name: POWERI_DATA_DIR, value: "/app/gateway/data" }
-          volumeMounts: [{ name: data, mountPath: /app/gateway/data }]
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 1000
-            allowPrivilegeEscalation: false
-      volumes:
-        - name: data
-          persistentVolumeClaim: { claimName: gateway-pvc }
----
-apiVersion: v1
-kind: Service
-metadata: { name: gateway, namespace: ${NS} }
-spec:
-  type: NodePort
-  selector: { app: poweri, role: gateway }
-  ports:
-    - { port: 8080, targetPort: 8080, nodePort: 31080 }`);
-execFileSync("kubectl", ["apply", "-f", "-"], { input: out.join("\n"), stdio: ["pipe", "ignore", "inherit"] });
-console.log(`✓ gateway 已部署（NodePort 31080）`);
+applyManifest(path.join(GW_DIR, "deploy", "k8s", "gateway.yaml"), { K8S_USERS: k8sUsers });
+console.log(`✓ gateway 已部署（NodePort 31080，manifest 来自 poweri-gateway 仓库 ${path.join(GW_DIR, "deploy", "k8s", "gateway.yaml")}）`);
 
 // ── 2c. PowerI-Web UI（ticket 27：单一网关模式壳，指向网关 Service；无 PVC——数据全在 worker 侧）──
-// 探针：全站 Basic Auth → exec probe 用首用户凭据（$POWERI_WEB_USERS 首项），<500 即就绪
+// manifest 归独立仓库（poweri-web/deploy/k8s/poweri-web.yaml），此处聚合引用
 if (UI) {
   // ticket 28：每用户账号表（POWERI_WEB_USERS，默认 poweri-<user>）+ 网关用户表（token 解析）
   const webUsers = process.env.POWERI_WEB_USERS ?? users.map((u) => `${u}:poweri-${u}`).join(";");
-  const probe = { exec: { command: ["node", "-e", `const u=process.env.POWERI_WEB_USERS.split(';')[0];const i=u.indexOf(':');const us=u.slice(0,i),pw=u.slice(i+1);fetch('http://127.0.0.1:30141/',{headers:{Authorization:'Basic '+Buffer.from(us+':'+pw).toString('base64')}}).then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))`] }, initialDelaySeconds: 15, periodSeconds: 10, timeoutSeconds: 5 };
-  out.length = 0;
-  out.push(`---
-apiVersion: apps/v1
-kind: Deployment
-metadata: { name: poweri-web, namespace: ${NS} }
-spec:
-  replicas: 1
-  selector: { matchLabels: { app: poweri, role: ui } }
-  template:
-    metadata: { labels: { app: poweri, role: ui } }
-    spec:
-      containers:
-        - name: poweri-web
-          image: poweri-web:local
-          imagePullPolicy: IfNotPresent
-          ports: [{ containerPort: 30141 }]
-          env:
-            - { name: POWERI_GATEWAY_URL, value: "http://gateway.poweri.svc.cluster.local:8080" }
-            - { name: POWERI_GATEWAY_CWD, value: "/workspace" }
-            - { name: POWERI_WEB_USERS, value: "${webUsers}" }
-            - { name: POWERI_GATEWAY_USERS, value: "${GW_USERS}" }
-            - name: POWERI_GATEWAY_TOKEN
-              valueFrom: { secretKeyRef: { name: poweri-secrets, key: POWERI_UI_TOKEN } }
-            - name: POWERI_WEB_PASSWORD
-              valueFrom: { secretKeyRef: { name: poweri-secrets, key: POWERI_WEB_PASSWORD } }
-          readinessProbe: ${JSON.stringify(probe)}
-          livenessProbe: ${JSON.stringify(probe)}
-          resources:
-            requests: { cpu: 250m, memory: 512Mi }
-            limits: { cpu: "1", memory: 1Gi }
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 1000
-            allowPrivilegeEscalation: false
----
-apiVersion: v1
-kind: Service
-metadata: { name: poweri-web, namespace: ${NS} }
-spec:
-  type: NodePort
-  selector: { app: poweri, role: ui }
-  ports:
-    - { port: 30141, targetPort: 30141, nodePort: 30341 }`);
-  execFileSync("kubectl", ["apply", "-f", "-"], { input: out.join("\n"), stdio: ["pipe", "ignore", "inherit"] });
-  console.log(`✓ PowerI-Web UI 已部署（NodePort 30341，账号 ${webUsers}）`);
+  applyManifest(path.join(WEB_DIR, "deploy", "k8s", "poweri-web.yaml"), { WEB_USERS: webUsers, GW_USERS });
+  console.log(`✓ PowerI-Web UI 已部署（NodePort 30341，账号 ${webUsers}，manifest 来自 poweri-web 仓库）`);
 }
 
 // ── 2b. pi-web 可视化实例（ticket 21：每用户 Pod 挂该用户 PVC，与 worker 同一数据布局）──
