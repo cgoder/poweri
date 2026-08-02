@@ -9,6 +9,10 @@
 
 本地验证环境：macOS + OrbStack（含 K8s 集成），用于最小端到端 PoC（ticket 13）。
 
+## 📘 运维操作手册
+
+部署接线架构（Web UI → 网关 → Worker 的产品路径 vs pi-web 进程内开发路径）、业务 skill 的加载机制 / 播种 / 验证 / 新增，以及部署后业务使用场景的操作，见 **[OPERATIONS.md](./OPERATIONS.md)**（ticket 21）。
+
 ## Worker Pod 资源限额（ticket 07，与 docker 层 PoC 一致）
 
 ```yaml
