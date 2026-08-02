@@ -200,6 +200,26 @@ export async function fetchWorkerSessionJsonl(userId, sessionId) {
   return (await res.json()).lines ?? "";
 }
 
+// 工作区文件/技能：网关代理到 worker bridge HTTP 面（读用户 PVC）
+export async function fetchWorkerFiles(userId, path, recursive) {
+  const res = await fetch(`http://${k8sBridgeAddr(userId)}/files?path=${encodeURIComponent(path ?? "/")}&recursive=${recursive ? "1" : "0"}`);
+  if (!res.ok) throw new Error(`worker /files HTTP ${res.status}: ${(await res.text()).slice(0, 120)}`);
+  return res.json();
+}
+
+export async function fetchWorkerFile(userId, path) {
+  const res = await fetch(`http://${k8sBridgeAddr(userId)}/file?path=${encodeURIComponent(path ?? "")}`);
+  if (res.status === 400) { const j = await res.json(); throw new Error(j.error ?? "file error"); }
+  if (!res.ok) throw new Error(`worker /file HTTP ${res.status}`);
+  return (await res.json()).content ?? "";
+}
+
+export async function fetchWorkerSkills(userId) {
+  const res = await fetch(`http://${k8sBridgeAddr(userId)}/skills`);
+  if (!res.ok) throw new Error(`worker /skills HTTP ${res.status}`);
+  return (await res.json()).skills ?? [];
+}
+
 // 路由入口：统一返回 Promise<{ stream: AsyncIterable<object>, abort: () => void }>
 // requestId：贯穿链路（client→网关→桥 prompt id→pi response id），供 trace 关联
 export async function streamPod(userId, sessionId, message, requestId) {

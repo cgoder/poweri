@@ -18,7 +18,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { WebSocketServer } from "ws";
 import { getLastSession, newSessionId, setLastSession } from "./store.mjs";
-import { streamPod, sessionFileHost, POD_PROVIDER, fetchWorkerSessions, fetchWorkerSessionJsonl, userPiDir } from "./pods.mjs";
+import { streamPod, sessionFileHost, POD_PROVIDER, fetchWorkerSessions, fetchWorkerSessionJsonl, fetchWorkerFiles, fetchWorkerFile, fetchWorkerSkills, userPiDir, userWorkspaceDir } from "./pods.mjs";
 import { withLock } from "./queue.mjs";
 import { messagesFromJsonl } from "./session-parse.mjs";
 import { appendUsage, invoiceFor, scanUsage } from "./metering.mjs";
@@ -69,6 +69,50 @@ function localSessions(userId) {
       const st = statSync(full);
       return sessionListEntry(f.slice(0, -6), readFileSync(full, "utf8"), new Date(st.mtime).toISOString());
     });
+}
+
+// 本地模式文件/技能（仅开发回退；产品走 k8s provider 的 fetchWorker* 读 PVC）
+// ponytail: 与 bridge 的 listDir/scanSkills 各存一份——k8s 为产品路径，本地是开发占位，不共享模块
+function localFiles(userId, p, recursive) {
+  const root = userWorkspaceDir(userId);
+  const target = path.resolve(root, p ?? "/");
+  if (!target.startsWith(root) || !existsSync(target)) throw new Error("Directory not found");
+  if (!statSync(target).isDirectory()) throw new Error("Not a directory");
+  if (!recursive) {
+    const entries = readdirSync(target, { withFileTypes: true })
+      .filter((d) => d.name !== "node_modules" && d.name !== ".git")
+      .map((d) => ({ name: d.name, isDir: d.isDirectory(), size: 0, modified: "" }))
+      .sort((a, b) => (a.isDir !== b.isDir ? (a.isDir ? -1 : 1) : a.name.localeCompare(b.name)));
+    return { entries, path: target };
+  }
+  const files = [];
+  const walk = (dir, depth) => {
+    if (depth > 8 || files.length >= 5000) return;
+    for (const d of readdirSync(dir, { withFileTypes: true })) {
+      if (files.length >= 5000) return;
+      if (d.name === "node_modules" || d.name === ".git") continue;
+      const full = path.join(dir, d.name);
+      if (d.isDirectory()) walk(full, depth + 1);
+      else files.push(full);
+    }
+  };
+  walk(target, 0);
+  return { files };
+}
+
+function localFile(userId, p) {
+  const root = userWorkspaceDir(userId);
+  const target = path.resolve(root, p ?? "");
+  if (!target.startsWith(root) || !existsSync(target)) throw new Error("file not found");
+  return readFileSync(target, "utf8");
+}
+
+function localSkills(userId) {
+  const dir = path.join(userPiDir(userId), "skills");
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((d) => d.endsWith(".md") || statSync(path.join(dir, d)).isDirectory())
+    .map((d) => ({ name: d.replace(/\.md$/, ""), description: "", filePath: path.join(dir, d), baseDir: dir, disableModelInvocation: false, sourceInfo: { source: "global", scope: "user" } }));
 }
 
 // 会话解析：返回 (sessionId, 是否新建)
@@ -178,6 +222,41 @@ const server = createServer(async (req, res) => {
     try {
       const sessions = POD_PROVIDER === "k8s" ? await fetchWorkerSessions(userId) : localSessions(userId);
       sendJson(res, 200, { sessions });
+    } catch (e) { sendJson(res, 502, { error: String(e?.message ?? e) }); }
+    return;
+  }
+
+  // 工作区文件/技能（网关代理 → worker bridge 读 PVC；pi-web 壳文件浏览器/技能菜单）
+  if (url.pathname === "/v1/files" && req.method === "GET") {
+    const userId = userFromReq(req);
+    if (!userId) { sendJson(res, 401, { error: "unauthorized" }); return; }
+    try {
+      const data = POD_PROVIDER === "k8s"
+        ? await fetchWorkerFiles(userId, url.searchParams.get("path") ?? "/", url.searchParams.get("recursive") === "1")
+        : localFiles(userId, url.searchParams.get("path") ?? "/", url.searchParams.get("recursive") === "1");
+      sendJson(res, 200, data);
+    } catch (e) { sendJson(res, 502, { error: String(e?.message ?? e) }); }
+    return;
+  }
+  if (url.pathname === "/v1/file" && req.method === "GET") {
+    const userId = userFromReq(req);
+    if (!userId) { sendJson(res, 401, { error: "unauthorized" }); return; }
+    try {
+      const content = POD_PROVIDER === "k8s"
+        ? await fetchWorkerFile(userId, url.searchParams.get("path") ?? "")
+        : localFile(userId, url.searchParams.get("path") ?? "");
+      sendJson(res, 200, { content });
+    } catch (e) { sendJson(res, 502, { error: String(e?.message ?? e) }); }
+    return;
+  }
+  if (url.pathname === "/v1/skills" && req.method === "GET") {
+    const userId = userFromReq(req);
+    if (!userId) { sendJson(res, 401, { error: "unauthorized" }); return; }
+    try {
+      const skills = POD_PROVIDER === "k8s"
+        ? await fetchWorkerSkills(userId)
+        : localSkills(userId);
+      sendJson(res, 200, { skills });
     } catch (e) { sendJson(res, 502, { error: String(e?.message ?? e) }); }
     return;
   }

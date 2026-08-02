@@ -79,10 +79,108 @@ wss.on("connection", (ws, req) => {
 // ── HTTP 面：会话列表/读取（k8s provider 下网关经此读 worker PVC 上的会话 JSONL）──
 // GET /sessions            → { sessions: [sessionListEntry DTO] }
 // GET /sessions/<id>       → { id, lines: "<原始 JSONL>" }
+// GET /files?path=&recursive=0 → 工作区目录列表（网关代理给 pi-web 文件浏览器/搜索）
+// GET /file?path=          → { content } 读取工作区文件（utf8，只读）
+// GET /skills              → { skills: [SkillInfo] } 扫描 agent 技能目录
 // ponytail: 每次请求全量读+解析所有会话文件，会话量大时阻塞 WS 通道——加缓存/分页再议
+const WORKSPACE = process.env.POWERI_BRIDGE_WORKSPACE ?? "/workspace";
+const AGENT_DIR = process.env.POWERI_BRIDGE_AGENT_DIR ?? "/home/piuser/.pi/agent";
+const IGNORED_NAMES = new Set(["node_modules", ".git", ".next", "dist", "build", "__pycache__", ".turbo", ".cache", "coverage", ".pytest_cache", ".mypy_cache", "target", "vendor", ".DS_Store"]);
+const MAX_WALK = 5000;
+const MAX_DEPTH = 8;
+
+function resolveInWorkspace(p) {
+  const target = p && p.startsWith("/") ? join("/", p) : join(WORKSPACE, p ?? "");
+  return target === WORKSPACE || target.startsWith(WORKSPACE + "/") ? target : null;
+}
+
+function listDir(p, recursive) {
+  if (!existsSync(p)) throw new Error("Directory not found");
+  const st = statSync(p);
+  if (!st.isDirectory()) throw new Error("Not a directory");
+  if (!recursive) {
+    const entries = readdirSync(p, { withFileTypes: true })
+      .filter((d) => !IGNORED_NAMES.has(d.name))
+      .map((d) => ({ name: d.name, isDir: d.isDirectory(), size: 0, modified: "" }))
+      .sort((a, b) => (a.isDir !== b.isDir ? (a.isDir ? -1 : 1) : a.name.localeCompare(b.name)));
+    return { entries, path: p };
+  }
+  const files = [];
+  const walk = (dir, depth) => {
+    if (depth > MAX_DEPTH || files.length >= MAX_WALK) return;
+    let items;
+    try { items = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const d of items) {
+      if (files.length >= MAX_WALK) return;
+      if (IGNORED_NAMES.has(d.name)) continue;
+      const full = join(dir, d.name);
+      if (d.isDirectory()) walk(full, depth + 1);
+      else files.push(full);
+    }
+  };
+  walk(p, 0);
+  return { files };
+}
+
+function parseFrontmatter(s) {
+  const m = s.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!m) return {};
+  const out = {};
+  for (const line of m[1].split(/\r?\n/)) {
+    const i = line.indexOf(":");
+    if (i > 0) out[line.slice(0, i).trim()] = line.slice(i + 1).trim().replace(/^["']|["']$/g, "");
+  }
+  return out;
+}
+
+function scanSkills() {
+  const dir = join(AGENT_DIR, "skills");
+  if (!existsSync(dir)) return [];
+  const skills = [];
+  for (const d of readdirSync(dir, { withFileTypes: true })) {
+    let filePath, fm = {};
+    if (d.isDirectory()) {
+      const md = join(dir, d.name, "SKILL.md");
+      if (!existsSync(md)) continue;
+      filePath = md;
+      try { fm = parseFrontmatter(readFileSync(md, "utf8")); } catch {}
+    } else if (d.name.endsWith(".md")) {
+      filePath = join(dir, d.name);
+      try { fm = parseFrontmatter(readFileSync(filePath, "utf8")); } catch {}
+    } else continue;
+    skills.push({
+      name: fm.name || d.name.replace(/\.md$/, ""),
+      description: fm.description || "",
+      filePath,
+      baseDir: dir,
+      disableModelInvocation: false,
+      sourceInfo: { source: "global", scope: "user" },
+    });
+  }
+  return skills.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 server.on("request", (req, res) => {
   const url = new URL(req.url ?? "/", "http://localhost");
   const send = (code, obj) => { res.writeHead(code, { "content-type": "application/json" }); res.end(JSON.stringify(obj)); };
+  if (url.pathname === "/skills" && req.method === "GET") {
+    try { send(200, { skills: scanSkills() }); } catch (e) { send(500, { error: String(e?.message ?? e) }); }
+    return;
+  }
+  if (url.pathname === "/files" && req.method === "GET") {
+    const target = resolveInWorkspace(url.searchParams.get("path") ?? "/");
+    if (!target) { send(400, { error: "path outside workspace" }); return; }
+    try { send(200, listDir(target, url.searchParams.get("recursive") === "1")); }
+    catch (e) { send(400, { error: String(e?.message ?? e) }); }
+    return;
+  }
+  if (url.pathname === "/file" && req.method === "GET") {
+    const target = resolveInWorkspace(url.searchParams.get("path") ?? "");
+    if (!target) { send(400, { error: "path outside workspace" }); return; }
+    try { send(200, { content: readFileSync(target, "utf8") }); }
+    catch (e) { send(400, { error: String(e?.message ?? e) }); }
+    return;
+  }
   if (url.pathname === "/sessions" && req.method === "GET") {
     try {
       const sessions = readdirSync(SESSIONS_DIR)

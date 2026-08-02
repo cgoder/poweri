@@ -89,3 +89,12 @@ node scripts/verify-21.mjs alice,bob
 #   pi-web（开发可视化）  : http://127.0.0.1:30241（alice）/ 30242（bob），用户 pi，密码 poweri-<user>
 #   Worker 数据（PVC）    : kubectl exec deploy/worker-<user> -n poweri -- ls /home/piuser/.pi/agent/sessions
 ```
+
+## 7 网关文件/技能 API（pi-web 壳接通）
+
+网关新增只读三接口（Bearer token 认证，token→user 路由到对应 worker）：
+- `GET /v1/files?path=&recursive=` — 工作区目录列表/递归走查（限 /workspace 内）
+- `GET /v1/file?path=` — 读取工作区文件（utf8）
+- `GET /v1/skills` — worker 上技能列表（扫 agent skills 目录，解析 SKILL.md frontmatter）
+
+用途：pi-web (agegr) 壳网关模式的文件浏览器与技能菜单（ticket 25）。bridge 侧对应 HTTP 面 `GET /files|/file|/skills`（同 /sessions 模式），改 bridge/gateway 后需重建 poweri-worker + poweri-gateway 镜像并 rollout restart。
