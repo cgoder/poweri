@@ -90,7 +90,15 @@ node scripts/verify-21.mjs alice,bob
 #   Worker 数据（PVC）    : kubectl exec deploy/worker-<user> -n poweri -- ls /home/piuser/.pi/agent/sessions
 ```
 
-## 7 网关文件/技能 API（pi-web 壳接通）
+## 6.5 生产收口实况（ticket 30，K8s 已验证）
+
+- **资源限额**：worker（requests 250m/256Mi，limits 1/512Mi）与 gateway（100m/128Mi → 1/512Mi）已入 gen-k8s（此前缺失——HPA CPU 利用率依赖 requests 字段）。
+- **HPA K8s 实跑**：`kubectl apply -f deploy/k8s/hpa.yaml`（worker-alice min1/max3，CPU 70%）；metrics-server 已装（OrbStack k3s 需 `--kubelet-insecure-tls`，镜像 registry.k8s.io 换阿里云源）；压测 3 路并行长对话 → **副本 1→2 自动扩容**；缩容受 300s 稳定窗口约束。
+- **NetworkPolicy**：`deploy/k8s/networkpolicy.yaml` 已应用（默认拒绝出站 + DNS + 模型 API 198.18.2.74/32 白名单）。**注意：本机 OrbStack k3s 无 policy 型 CNI（无 flannel/cilium pod，k3s 内嵌 CNI），策略只落不实施；enforcement 需 Cilium/Calico，属生产集群决策。** 生产环境模型 API 出口需替换 CIDR（或集群内自建网关走 namespaceSelector）。
+
+**待用户决策**（ticket 30 未决项）：镜像仓库地址/凭据 + CI/CD 流水线（GitLab）；Ingress 域名 + TLS；网关多副本共享元数据存储（现 store.mjs 文件存储，单副本）。
+
+## 7 网关文件/技能 API（pi-web 壳接通）（pi-web 壳接通）
 
 网关新增只读三接口（Bearer token 认证，token→user 路由到对应 worker）：
 - `GET /v1/files?path=&recursive=` — 工作区目录列表/递归走查（限 /workspace 内）

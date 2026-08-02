@@ -92,6 +92,10 @@ spec:
           image: ${IMAGE}
           imagePullPolicy: IfNotPresent
           command: ["node", "/bridge/server.mjs"]
+          # ticket 07 规格（此前 gen-k8s 未应用，HPA CPU 利用率依赖 requests 字段）
+          resources:
+            requests: { cpu: 250m, memory: 256Mi }
+            limits: { cpu: "1", memory: 512Mi }
           env:
             - { name: POWERI_AI_MODEL, value: "${MODEL}" }
             - name: POWERI_AI_API_KEY
@@ -148,6 +152,10 @@ spec:
           image: poweri-gateway:local
           imagePullPolicy: IfNotPresent
           ports: [{ containerPort: 8080 }]
+          # 网关轻量：requests 100m/128Mi，limits 1/512Mi
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: "1", memory: 512Mi }
           env:
             - { name: POWERI_GATEWAY_PORT, value: "8080" }
             - { name: POWERI_POD_PROVIDER, value: "k8s" }
