@@ -1,7 +1,7 @@
 # 24 — pi-web (agegr) 壳提炼：RemoteAgentClient 对接网关（scoped route B 试点）
 
 Type: task
-Status: ready
+Status: claimed
 Blocked by: 23
 Created: 2026-08-02
 Tags: pi-web-agegr, gateway, adapter, pilot
