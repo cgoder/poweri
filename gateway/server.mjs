@@ -261,6 +261,26 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname.startsWith("/v1/sessions/") && url.pathname.endsWith("/jsonl") && req.method === "GET") {
+    // 原始会话 JSONL（导出 HTML 用）：k8s 经 bridge 读 PVC；本地读文件
+    const userId = userFromReq(req);
+    if (!userId) { sendJson(res, 401, { error: "unauthorized" }); return; }
+    const sessionId = url.pathname.split("/")[3];
+    if (!sessionId) { sendJson(res, 400, { error: "sessionId required" }); return; }
+    try {
+      if (POD_PROVIDER === "k8s") {
+        const lines = await fetchWorkerSessionJsonl(userId, sessionId);
+        if (lines === null) { sendJson(res, 404, { error: "session not found" }); return; }
+        sendJson(res, 200, { sessionId, lines });
+      } else {
+        const file = sessionFileHost(userId, sessionId);
+        if (!existsSync(file)) { sendJson(res, 404, { error: "session not found" }); return; }
+        sendJson(res, 200, { sessionId, lines: readFileSync(file, "utf8") });
+      }
+    } catch (e) { sendJson(res, 502, { error: String(e?.message ?? e) }); }
+    return;
+  }
+
   if (url.pathname.startsWith("/v1/sessions/") && url.pathname.endsWith("/messages") && req.method === "GET") {
     // 断线重连历史补发：从用户 PVC 上的会话 JSONL 提取消息（事件已持久化，重连不丢）
     const userId = userFromReq(req);

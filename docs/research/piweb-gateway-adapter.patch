@@ -157,6 +157,46 @@ index 7251e89..35fded0 100644
      const sessionId = request.nextUrl.searchParams.get("sessionId");
  
      const allowedRoots = await getAllowedFileRoots();
+diff --git a/app/api/models-config/route.ts b/app/api/models-config/route.ts
+index da132ed..be28af4 100644
+--- a/app/api/models-config/route.ts
++++ b/app/api/models-config/route.ts
+@@ -4,6 +4,7 @@ import { dirname, join } from "path";
+ import { getAgentDir } from "@earendil-works/pi-coding-agent";
+ import { writePrivateFileAtomicSync } from "@/lib/atomic-file";
+ import { invalidateModelsCache } from "@/lib/models-cache";
++import { gatewayConfig } from "@/lib/gateway-client";
+ 
+ export const dynamic = "force-dynamic";
+ 
+@@ -29,10 +30,27 @@ function writeModelsJson(data: Record<string, unknown>): void {
+ }
+ 
+ export async function GET() {
++  // 网关模式：模型列表只读展示 worker 真实状态（gateway 单模型 poweri-gw/agent）
++  if (gatewayConfig.enabled) {
++    return NextResponse.json({
++      providers: {
++        "poweri-gw": {
++          name: "poweri-gw",
++          baseUrl: gatewayConfig.baseUrl,
++          api: "openai-completions",
++          models: [{ id: "agent", name: "agent" }],
++        },
++      },
++    });
++  }
+   return NextResponse.json(readModelsJson());
+ }
+ 
+ export async function PUT(req: Request) {
++  if (gatewayConfig.enabled) {
++    // 网关模式只读：worker 的 models.json 由部署链（gen-k8s/seed）管理，禁止在宿主编辑
++    return NextResponse.json({ error: "网关模式只读：worker 模型配置由部署链（gen-k8s/seed）管理" }, { status: 400 });
++  }
+   try {
+     const body = await req.json() as Record<string, unknown>;
+     writeModelsJson(body);
 diff --git a/app/api/models/route.ts b/app/api/models/route.ts
 index 2fe8cf4..e50c729 100644
 --- a/app/api/models/route.ts
@@ -225,6 +265,94 @@ index db80a66..ecc63fe 100644
      const allowedRoots = await getAllowedFileRoots();
      if (!isExistingFilePathAllowed(body.cwd, allowedRoots)) {
        return NextResponse.json({ error: "Access denied" }, { status: 403 });
+diff --git a/app/api/sessions/[id]/auto-name/route.ts b/app/api/sessions/[id]/auto-name/route.ts
+index 84b14ad..abffdf1 100644
+--- a/app/api/sessions/[id]/auto-name/route.ts
++++ b/app/api/sessions/[id]/auto-name/route.ts
+@@ -3,6 +3,7 @@ import type { AgentSession } from "@earendil-works/pi-coding-agent";
+ import { generateSessionTitle } from "@/lib/session-title";
+ import { getRpcSession, startRpcSession } from "@/lib/rpc-manager";
+ import { invalidateSessionListCache, resolveSessionPath } from "@/lib/session-reader";
++import { gatewayConfig, fetchGatewaySessionMessages } from "@/lib/gateway-client";
+ 
+ export async function POST(
+   _req: Request,
+@@ -10,6 +11,22 @@ export async function POST(
+ ) {
+   const { id } = await params;
+ 
++  // 网关模式：worker 侧无会话命名 API，用首条用户消息派生标题（本地生成，不走模型）
++  // ponytail: 非模型命名；需要模型级标题时接 worker 命名 API 再升级
++  if (gatewayConfig.enabled) {
++    try {
++      const { status, messages } = await fetchGatewaySessionMessages(id);
++      if (status !== 200 || !messages) {
++        return NextResponse.json({ error: "Session not found" }, { status: 404 });
++      }
++      const firstUser = messages.find((m) => m.role === "user");
++      const title = (firstUser?.text ?? "新会话").replace(/\s+/g, " ").trim().slice(0, 40);
++      return NextResponse.json({ title });
++    } catch (error) {
++      return NextResponse.json({ error: String(error) }, { status: 500 });
++    }
++  }
++
+   try {
+     const filePath = await resolveSessionPath(id);
+     if (!filePath) {
+diff --git a/app/api/sessions/[id]/export/route.ts b/app/api/sessions/[id]/export/route.ts
+index bda67e9..4a27449 100644
+--- a/app/api/sessions/[id]/export/route.ts
++++ b/app/api/sessions/[id]/export/route.ts
+@@ -1,12 +1,13 @@
+ import { randomUUID } from "crypto";
+ import { execFile } from "child_process";
+-import { existsSync, mkdirSync, readFileSync, rmSync } from "fs";
++import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+ import { tmpdir } from "os";
+ import { basename, dirname, join } from "path";
+ import { promisify } from "util";
+ import { fileURLToPath, pathToFileURL } from "url";
+ import { NextResponse } from "next/server";
+ import { resolveSessionPath } from "@/lib/session-reader";
++import { gatewayConfig, fetchGatewaySessionJsonl } from "@/lib/gateway-client";
+ 
+ const execFileAsync = promisify(execFile);
+ 
+@@ -246,9 +247,22 @@ export async function GET(
+   const inline = new URL(req.url).searchParams.get("inline") === "1";
+ 
+   try {
+-    const filePath = await resolveSessionPath(id);
+-    if (!filePath) {
+-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
++    let filePath: string | null = null;
++    let cleanupTemp: string | null = null;
++    if (gatewayConfig.enabled) {
++      // 网关模式：会话 JSONL 在 worker PVC，经网关取原始行落到临时文件再导出
++      const { status, lines } = await fetchGatewaySessionJsonl(id);
++      if (status !== 200 || lines === undefined) {
++        return NextResponse.json({ error: "Session not found" }, { status: 404 });
++      }
++      filePath = join(tmpdir(), `gateway-${id}.jsonl`);
++      writeFileSync(filePath, lines);
++      cleanupTemp = filePath;
++    } else {
++      filePath = await resolveSessionPath(id);
++      if (!filePath) {
++        return NextResponse.json({ error: "Session not found" }, { status: 404 });
++      }
+     }
+ 
+     const tempDir = join(tmpdir(), "pi-web-export");
+@@ -275,6 +289,7 @@ export async function GET(
+       });
+     } finally {
+       rmSync(outputPath, { force: true });
++      if (cleanupTemp) rmSync(cleanupTemp, { force: true });
+     }
+   } catch (error) {
+     return NextResponse.json({ error: String(error) }, { status: 500 });
 diff --git a/app/api/sessions/[id]/route.ts b/app/api/sessions/[id]/route.ts
 index 9303a66..7962c0a 100644
 --- a/app/api/sessions/[id]/route.ts
@@ -372,10 +500,10 @@ index 0000000..7ba78c1
 +});
 diff --git a/lib/gateway-client.ts b/lib/gateway-client.ts
 new file mode 100644
-index 0000000..6fa390b
+index 0000000..098dc94
 --- /dev/null
 +++ b/lib/gateway-client.ts
-@@ -0,0 +1,318 @@
+@@ -0,0 +1,327 @@
 +// PowerI 网关会话客户端：实现 pi-web (agegr) 路由/hooks 实际使用的会话表面（send/onEvent/isAlive/sessionId…），
 +// 后端走网关 API（POST /v1/chat SSE + WS /v1/ws + GET /v1/sessions + /v1/sessions/<id>/messages）。
 +// 不实现 AgentSessionLike 全接口——chat 范围外命令返回安全默认（见 send 的 default 分支）。
@@ -592,7 +720,7 @@ index 0000000..6fa390b
 +      pendingMessageCount: 0,
 +      queuedMessages: { steering: [], followUp: [] },
 +      contextUsage: null,
-+      systemPrompt: "",
++      systemPrompt: "（网关模式）系统提示词由 worker 上的 pi 运行时在每次代理启动时合成（含 User Memory 扩展注入的用户画像/事实/偏好），壳经网关无法读取远程运行时提示词——试点已知限制。",
 +      thinkingLevel: "medium",
 +      extensionStatuses: [],
 +      extensionWidgets: [],
@@ -666,6 +794,15 @@ index 0000000..6fa390b
 +  if (!res.ok) return { status: res.status };
 +  const body = (await res.json()) as { messages?: GatewayMessage[] };
 +  return { status: res.status, messages: body.messages };
++}
++
++/** 原始会话 JSONL（导出 HTML 用） */
++export async function fetchGatewaySessionJsonl(id: string): Promise<{ status: number; lines?: string }> {
++  const res = await fetch(`${gatewayConfig.baseUrl}/v1/sessions/${encodeURIComponent(id)}/jsonl`, {
++    headers: { Authorization: `Bearer ${gatewayConfig.token}` },
++  });
++  if (!res.ok) return { status: res.status };
++  return { status: res.status, ...((await res.json()) as { lines?: string }) };
 +}
 +
 +// 工作区文件/技能（网关代理到 worker PVC，供文件浏览器与技能菜单）

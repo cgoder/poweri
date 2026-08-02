@@ -16,6 +16,14 @@ Tags: gateway, bridge, k8s, pi-web-agegr, files, skills
 
 根因：fork 的 `/api/files/*`、`/api/file-index`、`/api/skills` 全部走 macOS 宿主文件系统并做 allowed-roots 校验，而工作区（`/workspace`）与技能（`/home/piuser/.pi/agent/skills`）实际都在 worker PVC 上。headless Chrome 复现确认：`/api/skills?cwd=/workspace` → 403（宿主 `/workspace` 不存在），`/api/file-index` → 404。
 
+## 补充：第二轮实测四问题（插件/标题/导出/系统提示词/模型清单）
+
+1. **插件菜单 access denied**：worker 无插件包体系（技能走 seed-skills、扩展走 `-e`），GET 返回空 PluginsResponse、POST 明确拒绝。
+2. **生成标题失败**：auto-name 调 `generateSessionTitle(session.inner)` 需真实 Agent；网关分支改为首条用户消息本地派生标题（40 字截断，不走模型）。
+3. **完整历史导出报错**：导出走宿主 `cli --export <synthetic /gateway/<id>.jsonl>`；网关新增 `GET /v1/sessions/<id>/jsonl`（bridge 原始 JSONL 透传），fork 导出路由拉原始行落临时文件再导出（276KB HTML 验证通过）。
+4. **系统提示词不显示**：worker 运行时合成、网关无读取 API；getState 返回如实说明文案（发消息后 state 路由返回，与 fork「发送消息以加载系统提示词」设计一致）。债务：需要真实提示词时在 worker 侧暴露（扩展落盘 + bridge 端点）。
+5. **模型清单不一致**：面板走宿主 `/api/models-config`（列出 macOS 本机多模型）而聊天框只显示 poweri-gw/agent；网关分支返回单 provider 单模型（与 worker 真实状态一致），PUT 只读拒绝。
+
 ## 补充：插件菜单（用户实测第二轮反馈）
 
 同样的 access denied 类问题：`/api/plugins` GET 走宿主 cwd 校验。网关分支直接返回 worker 的真实插件状态——**worker 无插件包体系**（技能走 seed-skills 播种、扩展走 `-e` 参数），即空列表 `{packages:[], totals:全 0, diagnostics:[], projectResourcesLoaded:true}`；POST（install/remove/update/disable/enable）明确返回「网关模式不支持插件管理」。侧栏四面板（模型/技能/插件/文件）至此全部网关接通。
