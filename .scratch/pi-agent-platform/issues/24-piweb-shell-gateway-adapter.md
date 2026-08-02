@@ -39,7 +39,7 @@ fork pi-web (agegr) v0.8.6，新增 `RemoteAgentClient`（实现 `AgentSessionLi
 
 ## 产出
 
-- `.research-tmp/agegr-pi-web/`（fork 基底，v0.8.6 tag，gitignored）+ 修改 diff 记录
+- 独立仓库 `/Users/tianzhao/code/github/poweri-web`（PowerI-Web，初始提交 ce87383，git init 全新历史）
 - verify-24.mjs + 运行证据
 - Answer：scoped route B 可行性结论 + 对 A′/B/C 决策的影响
 
@@ -56,7 +56,7 @@ fork pi-web (agegr) v0.8.6，新增 `RemoteAgentClient`（实现 `AgentSessionLi
 
 **结论：scoped route B（pi-web (agegr) 壳提炼 → 网关 → worker）可行且已验证。** fork 以网关模式跑在宿主机（30161），前端 chat 全能力驱动 worker 链真实 pi（0.83.0），verify-24 14 项全过 + 单测 5/5。DeepWiki Q4 的剥离方案成立，前提缺口由 PowerI 栈补齐。
 
-### 实现（改动全部在 .research-tmp/agegr-pi-web，补丁存档 docs/research/piweb-gateway-adapter.patch 可重放）
+### 实现（改动全部在独立仓库 /Users/tianzhao/code/github/poweri-web，旧补丁 docs/research/piweb-gateway-adapter.patch 已被该仓库取代并删除）
 
 - **lib/gateway-client.ts（新，核心）**：`GatewaySessionClient` 实现路由/hooks 实际使用的会话表面（send/onEvent/isAlive/sessionId/waitUntilReady）；`send()` 命令分发表——prompt → 网关 `/v1/chat` SSE（fire-and-forget，ready 事件后 resolve 返回真实 sessionId）、abort → WS `/v1/ws`、get_state/get_session_stats/get_last_assistant_text 本地推导；chat 外命令（fork/compact/bash/模型切换等）安全默认 null（`ponytail:` 标注）。纯函数：`parseSseFrame`（eventsource-parser 适配器，单测契约）/`translateGatewayEvent`（剥 ready/prompt ack/assistantMessageEvent 增量包装）/`gatewayMessageToUi`。SSE 解析用 `eventsource-parser` v3.1.0（ADR-0009 成熟开源优先，Vercel AI SDK 同款），不手撸切帧。
 - **lib/rpc-manager.ts**：startRpcSession 网关分支（enabled 时返回 GatewaySessionClient，session_created 事件补注册真实 msb* id）。
@@ -91,7 +91,7 @@ fork pi-web (agegr) v0.8.6，新增 `RemoteAgentClient`（实现 `AgentSessionLi
 ### 运行方式
 
 ```bash
-cd .research-tmp/agegr-pi-web
+cd /Users/tianzhao/code/github/poweri-web
 export POWERI_GATEWAY_URL=http://127.0.0.1:31080 POWERI_GATEWAY_TOKEN=token-a POWERI_GATEWAY_CWD=/workspace PI_WEB_PASSWORD=poweri-alice
 npx next start -H 127.0.0.1 -p 30161
 # 浏览器 http://127.0.0.1:30161（pi / poweri-alice）

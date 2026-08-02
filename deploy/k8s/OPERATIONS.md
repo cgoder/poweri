@@ -97,4 +97,4 @@ node scripts/verify-21.mjs alice,bob
 - `GET /v1/file?path=` — 读取工作区文件（utf8）
 - `GET /v1/skills` — worker 上技能列表（扫 agent skills 目录，解析 SKILL.md frontmatter）
 
-用途：pi-web (agegr) 壳网关模式的文件浏览器与技能菜单（ticket 25）。bridge 侧对应 HTTP 面 `GET /files|/file|/skills`（同 /sessions 模式），改 bridge/gateway 后需重建 poweri-worker + poweri-gateway 镜像并 rollout restart。
+用途：PowerI-Web（独立仓库 /Users/tianzhao/code/github/poweri-web，原名 pi-web (agegr)）壳网关模式的文件浏览器与技能菜单（ticket 25）。bridge 侧对应 HTTP 面 `GET /files|/file|/skills`（同 /sessions 模式），改 bridge/gateway 后需重建 poweri-worker + poweri-gateway 镜像并 rollout restart。
