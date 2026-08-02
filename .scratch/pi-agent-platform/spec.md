@@ -62,6 +62,13 @@ Status: ready-for-agent
 36. 作为管理员，我想在平台上线时把已有的用户档案/画像/历史使用记录初始化进每个用户的 User Memory，以便老用户上线即被理解。
 37. 作为架构师/开发者，我想在本机 macOS + OrbStack（含 K8s 集成）上跑一个最小端到端验证（容器化 pi + 桥 + 网关），以便小步迭代、快速获得反馈、及时修正整体架构。
 38. 作为测试组织者，我想为多名测试用户各提供一个可视化界面（基于 pi-web 容器的 Web UI，每用户一实例挂各自 PVC），以便多人在真实环境里可视化地并发操作、观察多租户隔离与续接行为（ticket 15）。
+39. 作为用户，我想通过统一的 Web 界面（PowerI-Web 独立容器）访问平台，以便在任何设备上用同一入口使用产品。
+40. 作为用户，我想用自己的账号（而非共享密码）登录 Web 界面，以便平台识别我是谁、把请求路由到我的专属 Worker 与数据。
+41. 作为用户，我想在 Web 界面里管理我的会话（列表/历史/导出已有；改名/删除待补），以便维护对话历史。
+42. 作为用户，我想在 Web 界面里看到我的用量与账单，以便了解消费、被透明计费。
+43. 作为管理员，我想以单一（或按租户）的 PowerI-Web 容器形态部署 UI 并指向网关，以便 UI 层独立迭代、独立伸缩、与平台解耦。
+44. 作为管理员，我想打通 UI 与网关的认证（用户账号 ↔ 网关 token 映射），以便多租户 UI 安全接入。
+45. 作为管理员，我想让平台从镜像仓库拉取镜像、经 CI/CD 发布，以便生产可复现、可回滚。
 
 ## Implementation Decisions
 
@@ -80,6 +87,9 @@ Status: ready-for-agent
 - **健康/就绪**：桥暴露存活探针，pi 侧以 `get_state` RPC 校验成功；就绪校验模型可用（`ModelRuntime.getAvailable`）。
 - **更新**：不可变 + 锁版本镜像（`@…/pi-coding-agent@<版本>`），滚动替换；容器内 `PI_OFFLINE=1` 关闭自更新与 pi.dev 外呼。
 - **配置/凭据注入**：模型凭据经 secret 管理注入环境变量；自定义 provider/model 走 `models.json`（`apiKey` 支持 `$ENV_VAR` 插值），全局设置走 `settings.json`。
+- **产品 UI 形态（PowerI-Web 独立容器）**：产品唯一入口 = PowerI-Web（fork 自 agegr/pi-web v0.8.6，网关模式壳：Web UI → 网关 → Worker，独立仓库 `/Users/tianzhao/code/leoao/poweri-web`）→ 网关 → Worker（ADR-0002 协议同构）。UI 层与平台解耦、独立迭代。上游 npm `@agegr/pi-web` 的进程内形态（`piweb-<user>` pod，30241+，旁路网关）与 jmfederico 试点（`piweb2`，30251+）仅作开发验证/试点，不进入产品路径，待退役。
+- **UI↔网关认证**：UI 每用户账号映射到网关 Bearer token（网关 `POWERI_GATEWAY_USERS` 已有 token→user 表）；网关为唯一鉴权点，Pod 不直接暴露给客户端。
+- **生产收口（ticket 19 遗留）**：镜像仓库推送 + CI/CD（仓库地址/凭据待用户决策）；Ingress/TLS；网关多副本需共享元数据存储（现 `store.mjs` 单副本文件存储，注释已标）；HPA 温池 K8s 实跑（当前仅 docker 层实测）；NetworkPolicy 应用真实白名单；会话管理 API 补齐（改名/删除）；计量用户侧展示。
 - **桥协议细节来自调研**：pi RPC 为严格 LF 分隔 JSONL（`docs/rpc.md`），headless 下扩展 UI 经 `extension_ui_request/response` 子协议，TUI 专属方法为 no-op。
 - **User Memory（跨会话用户画像，ADR-0008）**：持久化在每用户 PVC 上的工作区文件，物理隔离、跨会话累积。**机制已定：pi 扩展**——扩展在工作区维护 memory 文件，随 agent 执行循环动态读写/注入，以贴合“提高执行能力与执行过程”的目标；扩展代码打包进每个 Pod 镜像。**设计定稿（docs/design/08-user-memory.md）**：三节记忆（画像/事实/偏好）存 `/workspace/.poweri/memory/`；`before_agent_start` 修改 `event.systemPrompt` 按 `POWERI_MEMORY_BUDGET`（默认 3000 tokens）上限截断注入（生态标准路径，T18 自 `before_provider_request` 迁入）；agent 回合内调用 `remember` 工具增量写入（零额外模型调用）；`scripts/init-memory.mjs` 上线时幂等初始化存量数据。**生态选型定案（ticket 14，实证 `docs/research/pi-memory-deep-research.md`）**：不替换为 pi-memory/hermes——三包注入路径（`before_agent_start` systemPrompt）实证可用，但 pi-memory 会话级 exit summary（每含工具请求 +1 次 LLM，无开关）与 daily 无锁写与平台“每请求一进程 + 跨会话并行”冲突；保留自研 + 移植最佳实践（ticket 18：注入点迁移 before_agent_start / 稳定快照 / 删除恢复 / daily 日志加锁评估）。
 - **存量数据初始化（Legacy user data onboarding）**：平台上线前已有的用户档案/画像/历史使用记录需并入 User Memory。方案：**上线时按用户一次性初始化**到其记忆体系（写入各用户 PVC 的 memory 文件），分批、可重试、幂等；用户首次运行时加载作为兜底。
@@ -101,7 +111,7 @@ Status: ready-for-agent
 
 - **支付网关 / 收款**（Stripe 等实收）不在范围——本 spec 只做到账单生成。
 - pi 本体（上游工具）的任何修改。
-- 客户端 UI / 前端（本 spec 只覆盖后端平台）。
+- **客户端 UI 的产品形态已定**（PowerI-Web 网关壳容器，独立仓库独立迭代）；UI 内容/功能面迭代（会话树/编辑器等上游能力）属 UI 项目自身范围，不在平台 spec 内。
 - 微 VM / Kata / gVisor 级执行隔离（当前容器级足够，留作后续）。
 - 发布/订阅式流式解耦（Redis/Kafka）（网关同步转发足够，留作扩展）。
 - 多地域 / 跨集群高可用（未在本 spec 范围）。
@@ -109,6 +119,11 @@ Status: ready-for-agent
 
 ## Further Notes
 
+- **待办差距清单（2026-08-02 架构回溯，对应用户故事 39-45）**：待 /to-tickets 拆成可执行 ticket：
+  1. PowerI-Web 容器化：Dockerfile（node:24-bookworm + `next build` + 仅生产依赖）+ 镜像构建脚本 + CI（仓库地址/凭据待用户决策）。
+  2. 部署形态：单一（或按租户）UI Deployment → 网关 Service（集群内 DNS 即可）；退役旧 `piweb-<user>`（30241+）与 `piweb2`（jmfederico 试点，30251+）形态。
+  3. 认证打通：UI 用户账号 → 网关 token 映射（登录页或每用户 Basic Auth）。
+  4. 生产收口：镜像仓库推送 + CI/CD、Ingress/TLS、网关多副本元数据存储、HPA K8s 实跑、NetworkPolicy 应用、会话管理 API（改名/删除）、计量用户侧展示。
 - 下一步用 `/to-tickets` 把本 spec 拆成可执行 ticket。
 - 待定细节：同一用户跨会话并行时，若两个会话触碰同一工作区文件，可能产生文件级竞争（用户侧行为，非数据损坏）；可在实现时决定是否加更细粒度锁。
 - 桥是每个 Pod 内唯一的自有代码，应保持最小并独立可测。

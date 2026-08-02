@@ -39,7 +39,7 @@ _Avoid_: archive, history
 > **同名双项目命名规范**：有两个同名项目 `pi-web`（上游与社区 fork），所有书面/口头引用必须带所有者前缀，严禁裸用 "pi-web" 指代两者之一。
 
 **PowerI-Web** (曾用名 **pi-web (agegr)**):
-独立仓库 `github.com/tianzhao/poweri-web`（本地 `/Users/tianzhao/code/github/poweri-web`），fork 自上游 agegr/pi-web v0.8.6（MIT），网关模式 Web 壳（Web UI → 网关 → worker），仅验证场景使用。代码内一律小写 `poweri-web`，展示文案保留品牌名 `PowerI-Web`。上游 npm `@agegr/pi-web`（v0.8.6）仍用于 `poweri-piweb` 镜像 / `piweb-<user>` pods（NodePort 30241+，进程内 pi 0.83.0）。
+独立仓库 `github.com/tianzhao/poweri-web`（本地 `/Users/tianzhao/code/leoao/poweri-web`），fork 自上游 agegr/pi-web v0.8.6（MIT），网关模式 Web 壳（Web UI → 网关 → worker），仅验证场景使用。代码内一律小写 `poweri-web`，展示文案保留品牌名 `PowerI-Web`。上游 npm `@agegr/pi-web`（v0.8.6）仍用于 `poweri-piweb` 镜像 / `piweb-<user>` pods（NodePort 30241+，进程内 pi 0.83.0）。
 _Avoid_: pi-web (bare), the original pi-web
 
 **pi-web (jmfederico)**:
