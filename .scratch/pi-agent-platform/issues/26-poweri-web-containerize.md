@@ -1,7 +1,7 @@
 # 26 — PowerI-Web 容器化（独立容器的最后一块拼图）
 
 - **Type:** task
-- **Status:** ready
+- **Status:** claimed
 - **Blocked by:**
 - **Depends on:**
 - **工作目录：** `/Users/tianzhao/code/leoao/poweri-web`（独立仓库，已移出本仓库，改动需切换目录）
