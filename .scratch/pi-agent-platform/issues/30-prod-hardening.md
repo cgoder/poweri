@@ -1,7 +1,7 @@
 # 30 — 生产收口（镜像仓库/CI、Ingress、网关元数据存储、HPA、NetworkPolicy、计量展示）
 
 - **Type:** task
-- **Status:** ready
+- **Status:** claimed
 - **Blocked by:** 27, 28
 - **Depends on:** 19（遗留项）
 
