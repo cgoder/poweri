@@ -78,6 +78,10 @@ fork pi-web (agegr) v0.8.6，新增 `RemoteAgentClient`（实现 `AgentSessionLi
 - **全套工作区**（文件/终端/git/分支/模型切换）仍需网关补 API 族（研究 §6.2）——产品 chat 入口可用 scoped B/C，工作区功能二期。
 - **A′（jmfederico sessiond）**仍是「免改造壳」路线（worker 上跑 sessiond 即可），但计量/版本错位不变——B 是唯一兼顾计量与壳体验的路径。
 
+### 崩溃修复（2026-08-02，用户实测后）
+
+用户浏览器实测「聊天页中途崩溃 This page couldn't load」，headless Chrome 复现（65s 生成完成瞬间必崩）。根因：`GatewaySessionClient.getState()` 返回 `extensionStatuses/extensionWidgets: {}`（对象），前端 ChatWindow 按数组 `extensionWidgets.filter(...)` → TypeError → React 渲染崩溃 → 错误页。修复：改回 `[]`（与 in-process get_state 数组形状一致）。同轮修复：会话列表 30s 缓存导致新会话刷新后短暂「数据没了」→ `invalidateGatewaySessions()` 在新会话/每轮 prompt 后失效；`[id]/route.ts` 漏 import（ReferenceError 500）。验证：dev 复现脚本 75s 无 pageerror，verify-24 13/13，生产 30161 已重建。
+
 ### 已知债务（ponytail）
 
 - 模型切换/auto-name/分支树为 stub（send 安全默认 + inner no-op；intra-session tree:[]）——chat 范围外。

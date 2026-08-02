@@ -1,12 +1,32 @@
+diff --git a/app/api/agent/[id]/route.ts b/app/api/agent/[id]/route.ts
+index 834b76e..68461f9 100644
+--- a/app/api/agent/[id]/route.ts
++++ b/app/api/agent/[id]/route.ts
+@@ -1,6 +1,7 @@
+ import { NextResponse } from "next/server";
+ import { resolveSessionPath } from "@/lib/session-reader";
+ import { startRpcSession, getRpcSession } from "@/lib/rpc-manager";
++import { invalidateGatewaySessions } from "@/lib/gateway-client";
+ 
+ // POST /api/agent/[id] - Send a command to an existing session
+ export async function POST(
+@@ -16,6 +17,7 @@ export async function POST(
+     const existing = getRpcSession(id);
+     if (existing?.isAlive()) {
+       const result = await existing.send(body);
++      invalidateGatewaySessions();
+       return NextResponse.json({ success: true, data: result });
+     }
+ 
 diff --git a/app/api/agent/new/route.ts b/app/api/agent/new/route.ts
-index f463213..3d16374 100644
+index f463213..f80c702 100644
 --- a/app/api/agent/new/route.ts
 +++ b/app/api/agent/new/route.ts
 @@ -1,6 +1,7 @@
  import { NextResponse } from "next/server";
  import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
  import { existsSync } from "fs";
-+import { gatewayConfig } from "@/lib/gateway-client";
++import { gatewayConfig, invalidateGatewaySessions } from "@/lib/gateway-client";
  import { randomUUID } from "crypto";
  import { allowFileRoot } from "@/lib/file-access";
  import { invalidateSessionListCache } from "@/lib/session-reader";
@@ -20,8 +40,11 @@ index f463213..3d16374 100644
        return NextResponse.json({ error: `Directory does not exist: ${cwd}` }, { status: 400 });
      }
  
-@@ -62,7 +64,7 @@ export async function POST(req: Request) {
+@@ -60,9 +62,10 @@ export async function POST(req: Request) {
+     };
+ 
      if (promptCommand.type === "ensure_session") {
++      invalidateGatewaySessions();
        return NextResponse.json({
          success: true,
 -        sessionId: realSessionId,
@@ -29,7 +52,7 @@ index f463213..3d16374 100644
          data: null,
          model: state.model
            ? { provider: state.model.provider, modelId: state.model.id }
-@@ -75,7 +77,7 @@ export async function POST(req: Request) {
+@@ -75,7 +78,7 @@ export async function POST(req: Request) {
  
      return NextResponse.json({
        success: true,
@@ -206,10 +229,10 @@ index 0000000..7ba78c1
 +});
 diff --git a/lib/gateway-client.ts b/lib/gateway-client.ts
 new file mode 100644
-index 0000000..3926ec1
+index 0000000..29d0145
 --- /dev/null
 +++ b/lib/gateway-client.ts
-@@ -0,0 +1,287 @@
+@@ -0,0 +1,291 @@
 +// PowerI 网关会话客户端：实现 pi-web (agegr) 路由/hooks 实际使用的会话表面（send/onEvent/isAlive/sessionId…），
 +// 后端走网关 API（POST /v1/chat SSE + WS /v1/ws + GET /v1/sessions + /v1/sessions/<id>/messages）。
 +// 不实现 AgentSessionLike 全接口——chat 范围外命令返回安全默认（见 send 的 default 分支）。
@@ -428,8 +451,8 @@ index 0000000..3926ec1
 +      contextUsage: null,
 +      systemPrompt: "",
 +      thinkingLevel: "medium",
-+      extensionStatuses: {},
-+      extensionWidgets: {},
++      extensionStatuses: [],
++      extensionWidgets: [],
 +    };
 +  }
 +
@@ -477,6 +500,10 @@ index 0000000..3926ec1
 +
 +/** 网关会话列表（带 30s 缓存，供 session-reader 与 history 路由共用） */
 +let gatewaySessionsCache: { at: number; sessions: Array<Record<string, unknown>> } | null = null;
++/** 新会话创建后立即失效列表缓存，避免侧栏 30s 内看不到新会话（agent_end 后侧栏刷新即命中） */
++export function invalidateGatewaySessions(): void {
++  gatewaySessionsCache = null;
++}
 +export async function fetchGatewaySessions(force = false): Promise<Array<Record<string, unknown>>> {
 +  if (!gatewaySessionsCache || force || Date.now() - gatewaySessionsCache.at > 30_000) {
 +    const res = await fetch(`${gatewayConfig.baseUrl}/v1/sessions`, {
