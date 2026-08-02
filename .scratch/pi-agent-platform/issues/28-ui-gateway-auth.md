@@ -1,7 +1,7 @@
 # 28 — UI↔网关认证打通（用户账号 → 网关 token 映射）
 
 - **Type:** task
-- **Status:** ready
+- **Status:** claimed
 - **Blocked by:** 26
 - **Depends on:**
 
