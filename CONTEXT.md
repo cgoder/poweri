@@ -35,3 +35,13 @@ _Avoid_: bill (ambiguous)
 **Legacy user data**:
 Pre-existing user profile, persona, and historical usage records held before the platform launched, to be onboarded into a user's User Memory (at launch or on first run).
 _Avoid_: archive, history
+
+> **同名双项目命名规范**：有两个同名项目 `pi-web`（上游与社区 fork），所有书面/口头引用必须带所有者前缀，严禁裸用 "pi-web" 指代两者之一。
+
+**pi-web (agegr)**:
+The upstream pi web UI: Next.js/React, npm `@agegr/pi-web` (pinned v0.8.6), drives pi-coding-agent **0.83.0** (PowerI 同版本) in-process. Deployed per-user as `poweri-piweb` image / `piweb-<user>` pods (NodePort 30241+). Baseline of the shell-extraction pilot (scoped route B).
+_Avoid_: pi-web (bare), the original pi-web
+
+**pi-web (jmfederico)**:
+The community rewrite of pi-web: Fastify/Lit, npm `@jmfederico/pi-web` (v1.202607.3), split sessiond+web processes, drives pi-coding-agent **0.82.1** in-process (peer range `<0.83`, 与 PowerI 版本错位). Deployed per-user as `poweri-piweb2` image / `piweb2-<user>` pods (NodePort 30251+). A′ pilot baseline (ticket 22).
+_Avoid_: pi-web (bare), the fork, piweb2 (without mapping)
