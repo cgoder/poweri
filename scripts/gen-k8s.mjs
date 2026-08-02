@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 
 const users = (process.argv[2] ?? "alice,bob").split(",").map((s) => s.trim()).filter(Boolean);
 const PIWEB = process.argv.includes("--piweb"); // ticket 21：追加每用户 pi-web 可视化实例
+const PIWEB2 = process.argv.includes("--piweb2"); // ticket 22 试点：追加每用户 jmfederico/pi-web（sessiond 分裂形态）实例
 const NODE_PORT_BASE = 30081;
 const NS = "poweri";
 const IMAGE = process.env.POWERI_POD_IMAGE ?? "poweri-worker:local";
@@ -220,6 +221,62 @@ spec:
   console.log(`✓ pi-web 已部署：${users.map((u, i) => `piweb-${u} (nodePort ${30241 + i})`).join(", ")}`);
 }
 
+// ── 3.5 每用户 jmfederico/pi-web 实例（ticket 22 A′ 试点：sessiond + web 分裂，无内置密码认证，信任模型=受信网络）
+if (PIWEB2) {
+  const probe = { httpGet: { path: "/", port: 8504 }, initialDelaySeconds: 15, periodSeconds: 10, timeoutSeconds: 5 };
+  out.length = 0;
+  for (const u of users) {
+    const idx = users.indexOf(u);
+    out.push(`---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: piweb2-${u}, namespace: ${NS} }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: poweri, role: piweb2, user: ${u} } }
+  template:
+    metadata: { labels: { app: poweri, role: piweb2, user: ${u} } }
+    spec:
+      containers:
+        - name: piweb2
+          image: poweri-piweb2:local
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 8504 }]
+          env:
+            - { name: PI_WEB_HOST, value: 0.0.0.0 }
+            - { name: PI_WEB_PORT, value: "8504" }
+            - { name: PI_WEB_DATA_DIR, value: /data/pi-web }
+            - { name: PI_WEB_SESSIOND_SOCKET, value: /data/pi-web/sessiond.sock }
+            - { name: PI_CODING_AGENT_DIR, value: /data/pi-agent }
+          readinessProbe: ${JSON.stringify(probe)}
+          livenessProbe: ${JSON.stringify(probe)}
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { cpu: "1", memory: 1Gi }
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - { name: pi, mountPath: /data/pi-agent, subPath: pi-agent }
+            - { name: pi, mountPath: /data/workspace, subPath: workspace }
+      volumes:
+        - name: pi
+          persistentVolumeClaim: { claimName: ${u}-pvc }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: piweb2-${u}, namespace: ${NS} }
+spec:
+  type: NodePort
+  selector: { app: poweri, role: piweb2, user: ${u} }
+  ports:
+    - { port: 8504, targetPort: 8504, nodePort: ${30251 + idx} }`);
+  }
+  execFileSync("kubectl", ["apply", "-f", "-"], { input: out.join("\n"), stdio: ["pipe", "ignore", "inherit"] });
+  console.log(`✓ piweb2 已部署：${users.map((u, i) => `piweb2-${u} (nodePort ${30251 + i})`).join(", ")}`);
+}
+
 // ── 4. 等待 Ready ──────────────────────────────────────────────────────
 for (const u of users) {
   run(["rollout", "status", `deploy/worker-${u}`, "-n", NS, "--timeout=120s"]);
@@ -233,4 +290,11 @@ if (PIWEB) {
     console.log(`✓ piweb-${u} Ready`);
   }
   console.log(`pi-web 访问: 用户 pi，密码见 Secret（默认 poweri-<user>）\n  http://127.0.0.1:${30241}（alice）  http://127.0.0.1:${30241 + users.indexOf(users[1] ?? users[0])}（后续用户依序 +1）`);
+}
+if (PIWEB2) {
+  for (const u of users) {
+    run(["rollout", "status", `deploy/piweb2-${u}`, "-n", NS, "--timeout=180s"]);
+    console.log(`✓ piweb2-${u} Ready`);
+  }
+  console.log(`piweb2 访问（jmfederico/pi-web，受信网络模型无内置密码）:\n  http://127.0.0.1:${30251}（alice）  http://127.0.0.1:${30251 + users.indexOf(users[1] ?? users[0])}（后续用户依序 +1）`);
 }
