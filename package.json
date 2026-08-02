@@ -14,7 +14,7 @@
     "verify:29": "node scripts/verify-29.mjs alice",
     "verify:30": "node scripts/verify-30.mjs alice"
   },
-  "dependencies": {
+  "devDependencies": {
     "eventsource-parser": "^3.1.0"
   }
 }
