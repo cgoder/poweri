@@ -5,20 +5,20 @@
 
 ## 0. 部署接线架构（先读，避免误用）
 
-**产品路径（唯一生产形态）**：Web 用户界面 → 网关（`gateway:31080`）→ Worker（`worker-<user>`）→ pi（bridge 每连接 spawn 一个 pi RPC 进程）。
+**产品路径（唯一生产形态）**：PowerI-Web（网关模式壳容器，K8s 内 `poweri-web`，NodePort 30341）→ 网关（集群内 `gateway.poweri.svc.cluster.local:8080`，对外 NodePort 31080）→ Worker（`worker-<user>`）→ pi（bridge 每连接 spawn 一个 pi RPC 进程）。
 
 ```
-浏览器 Web UI ──SSE──> 网关 gateway ──WS──> worker-<user> (bridge) ──spawn──> pi (--mode rpc)
-                    (Bearer token)       (8081)                 (加载该用户 PVC 的配置/会话/skill)
+PowerI-Web 容器 ──SSE──> 网关 gateway ──WS──> worker-<user> (bridge) ──spawn──> pi (--mode rpc)
+(Basic Auth)         (Bearer token)       (8081)                (加载该用户 PVC 的配置/会话/skill)
 ```
 
-**开发/验证路径（不使用 Worker）**：pi-web 实例（`piweb-<user>:30241`）→ 进程内 pi（SDK 直接驱动，旁路网关）。**此路径不经过 Worker 容器**，仅用于开发期可视化验证。
+**开发/验证路径（不使用 Worker）**：旧 `piweb-<user>:30241`（上游 @agegr/pi-web 进程内 SDK 旁路网关）与 `piweb2`（jmfederico 试点）。**ticket 27 起废弃**（gen-k8s `--piweb`/`--piweb2` 打废弃警告，保留可回滚）——产品路径唯一化为 PowerI-Web 网关壳。
 
 **连接身份判别法**（一眼看出是哪个路径在服务）：
 | 路径 | 会话文件位置（用户 PVC 上） | 文件名特征 |
 |---|---|---|
-| Worker 链（产品） | `sessions/<网关id>.jsonl` | 网关生成的短 id（如 `msb1xxx-xxxx.jsonl`） |
-| pi-web（开发） | `sessions/<编码cwd>/<ts>_<uuid>.jsonl` | ISO 时间戳 + pi 的 UUID（cwd=/workspace 编码为 `--workspace--`） |
+| Worker 链（产品，含 PowerI-Web UI） | `sessions/<网关id>.jsonl` | 网关生成的短 id（如 `msb1xxx-xxxx.jsonl`） |
+| pi-web（开发，已废弃） | `sessions/<编码cwd>/<ts>_<uuid>.jsonl` | ISO 时间戳 + pi 的 UUID（cwd=/workspace 编码为 `--workspace--`） |
 
 两条路径**共用同一份用户数据**（worker 与 pi-web 挂载同一 PVC 的 `pi-agent` 与 `workspace` 子路径）：同一模型配置、同一会话目录、同一 workspace。产品选型时 Web UI 必须走网关（Worker）路径。
 
@@ -77,16 +77,16 @@ node scripts/verify-21.mjs alice,bob
 ## 6. 常用操作速查
 
 ```bash
-# 部署（worker + gateway + piweb）
-POWERI_AI_API_KEY=<key> node scripts/gen-k8s.mjs alice,bob --piweb
+# 部署（worker + gateway + [--ui] PowerI-Web UI / [--piweb] 旧 pi-web（废弃） / [--piweb2] jmfederico（废弃））
+POWERI_AI_API_KEY=<key> node scripts/gen-k8s.mjs alice,bob --ui
 
 # skill 播种 / 验证
 node scripts/seed-skills.mjs alice,bob
 node scripts/verify-21.mjs alice,bob
 
 # 访问
-#   Web UI（产品路径入口）: 网关 http://127.0.0.1:31080/v1/chat（Bearer token-a/token-b）
-#   pi-web（开发可视化）  : http://127.0.0.1:30241（alice）/ 30242（bob），用户 pi，密码 poweri-<user>
+#   PowerI-Web UI（产品入口）: http://127.0.0.1:30341（用户 pi，密码 poweri-<uiUser>，可 POWERI_WEB_PASSWORD 覆盖；POWERI_UI_USER 选 token 用户）
+#   Web API（产品路径）     : 网关 http://127.0.0.1:31080/v1/chat（Bearer token-a/token-b）
 #   Worker 数据（PVC）    : kubectl exec deploy/worker-<user> -n poweri -- ls /home/piuser/.pi/agent/sessions
 ```
 

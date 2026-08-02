@@ -1,7 +1,7 @@
 # 27 — UI 部署形态：单一 UI Deployment → 网关 + 退役旧形态
 
 - **Type:** task
-- **Status:** claimed
+- **Status:** resolved
 - **Blocked by:** 26
 - **Depends on:**
 
@@ -27,3 +27,12 @@ spec 用户故事 43 + 差距清单第 2 项：产品 UI = PowerI-Web 容器，�
 ## 测试决策
 
 集成验证走 `verify-27.mjs`（新 UI 部署 + 全链路 + 回归）。
+
+## Answer
+
+PowerI-Web 已以单一网关模式壳部署进 K8s 并验证 10/10（verify-27.mjs）：
+- **gen-k8s.mjs 新增 `--ui`**：Deployment `poweri-web`（镜像 poweri-web:local，无 PVC——数据全在 worker 侧）+ Service NodePort 30341；env `POWERI_GATEWAY_URL=http://gateway.poweri.svc.cluster.local:8080`（集群内 DNS）+ `POWERI_GATEWAY_CWD=/workspace` + Secret 注入 `POWERI_UI_TOKEN`（`POWERI_UI_USER` 选用户，默认首个）与 `POWERI_WEB_PASSWORD`（默认 poweri-<user>）；exec probe（Basic Auth）；限额 cpu 1/mem 1Gi、非 root
+- **产品路径唯一化**：K8s 内 UI → 集群内网关 → worker → 真实 pi 全链路验证（新会话 msbne7m7 有真实回答）；`--piweb`/`--piweb2` 打废弃警告（保留可回滚）
+- **修复（poweri-web 仓库）**：`/api/agent/new` 网关模式缺 cwd 时默认 `gatewayConfig.workspace`（此前 400 'cwd is required'）——容器化 API 级调用暴露
+- **验证**：verify-27 10/10（部署 Ready/401/200/单模型/会话列表 58/对话回合/废弃警告）；verify-24 回归 13/13
+- 遗留：单一 UI 单密码单 token（认证打通前形态）→ ticket 28；浏览器实测留给用户

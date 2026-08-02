@@ -1,5 +1,5 @@
-// 生成并应用 K8s 资源（ticket 16 PoC：每用户 PVC + worker Deployment + NodePort Service；ticket 21：--piweb 追加每用户 pi-web 实例）
-// 用法：node scripts/gen-k8s.mjs [alice,bob,...] [--piweb]   （默认 alice,bob；worker nodePort 从 30081 起；piweb nodePort 从 30241 起）
+// 生成并应用 K8s 资源（ticket 16 PoC：每用户 PVC + worker Deployment + NodePort Service；ticket 21：--piweb 追加每用户 pi-web 实例；ticket 27：--ui 部署 PowerI-Web 网关模式壳）
+// 用法：node scripts/gen-k8s.mjs [alice,bob,...] [--piweb|--piweb2|--ui]   （默认 alice,bob；worker nodePort 从 30081 起；piweb 30241 起；jmfederico 30251 起；ui 30341）
 // 前置：OrbStack K8s 已启用；poweri-worker:local 镜像可拉（OrbStack 共享镜像）；项目 deploy/config/pi 有 gen-pi-config 生成的 models.json/settings.json（或 POWERI_PI_CONFIG_DIR 指定）
 // 配置播种：ConfigMap 由 pi 配置生成，initContainer 复制进各用户 PVC（每用户隔离副本，可各自在界面改）
 import { execFileSync } from "node:child_process";
@@ -8,8 +8,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const users = (process.argv[2] ?? "alice,bob").split(",").map((s) => s.trim()).filter(Boolean);
-const PIWEB = process.argv.includes("--piweb"); // ticket 21：追加每用户 pi-web 可视化实例
-const PIWEB2 = process.argv.includes("--piweb2"); // ticket 22 试点：追加每用户 jmfederico/pi-web（sessiond 分裂形态）实例
+const PIWEB = process.argv.includes("--piweb"); // ticket 21：追加每用户 pi-web 可视化实例（ticket 27 起废弃：上游进程内形态与产品路径不符，保留可回滚）
+const PIWEB2 = process.argv.includes("--piweb2"); // ticket 22 试点：追加每用户 jmfederico/pi-web（sessiond 分裂形态）实例（ticket 27 起废弃）
+const UI = process.argv.includes("--ui"); // ticket 27：部署 PowerI-Web（网关模式壳，单一 UI 指向网关，数据全在 worker 侧）
+if (PIWEB) console.warn("⚠ --piweb 已废弃（ticket 27）：上游 @agegr/pi-web 进程内形态旁路网关，产品路径为 PowerI-Web 网关壳；仅保留可回滚");
+if (PIWEB2) console.warn("⚠ --piweb2 已废弃（ticket 27）：jmfederico 试点（ticket 22）已收口；仅保留可回滚");
 const NODE_PORT_BASE = 30081;
 const NS = "poweri";
 const IMAGE = process.env.POWERI_POD_IMAGE ?? "poweri-worker:local";
@@ -46,8 +49,15 @@ run(["delete", "secret", "poweri-secrets", "-n", NS, "--ignore-not-found=true"])
 const secretLiterals = [`POWERI_AI_API_KEY=${gwApiKey}`, `POWERI_GATEWAY_USERS=${GW_USERS}`];
 // ticket 21：pi-web 每实例 Basic Auth 密码（Secret 化，不进 ConfigMap；默认 poweri-<user>，可 POWERI_PIWEB_PASSWORD_<USER> 覆盖）
 if (PIWEB) for (const u of users) secretLiterals.push(`PI_WEB_PASSWORD_${u.toUpperCase()}=${process.env[`POWERI_PIWEB_PASSWORD_${u.toUpperCase()}`] ?? `poweri-${u}`}`);
+// ticket 27：PowerI-Web UI 凭据 — 单密码（POWERI_WEB_PASSWORD 可覆盖）+ 该用户网关 token（认证打通前的形态，ticket 28 改每用户账号）
+if (UI) {
+  const uiUser = process.env.POWERI_UI_USER ?? users[0];
+  const uiToken = GW_USERS.split(";").map((p) => p.split(":")).find(([u]) => u === uiUser)?.[1] ?? "";
+  secretLiterals.push(`POWERI_WEB_PASSWORD=${process.env.POWERI_WEB_PASSWORD ?? `poweri-${uiUser}`}`);
+  secretLiterals.push(`POWERI_UI_TOKEN=${uiToken}`);
+}
 execFileSync("kubectl", ["create", "secret", "generic", "poweri-secrets", ...secretLiterals.map((l) => `--from-literal=${l}`), "-n", NS], { stdio: "ignore" });
-console.log(`✓ Secret poweri-secrets（模型 apiKey + 网关用户 token${PIWEB ? " + pi-web 密码" : ""}）`);
+console.log(`✓ Secret poweri-secrets（模型 apiKey + 网关用户 token${PIWEB ? " + pi-web 密码" : ""}${UI ? " + PowerI-Web 密码/token" : ""}）`);
 
 // ── 2. 每用户：PVC + Deployment + NodePort Service ─────────────────────
 const out = [];
@@ -165,6 +175,57 @@ spec:
     - { port: 8080, targetPort: 8080, nodePort: 31080 }`);
 execFileSync("kubectl", ["apply", "-f", "-"], { input: out.join("\n"), stdio: ["pipe", "ignore", "inherit"] });
 console.log(`✓ gateway 已部署（NodePort 31080）`);
+
+// ── 2c. PowerI-Web UI（ticket 27：单一网关模式壳，指向网关 Service；无 PVC——数据全在 worker 侧）──
+// 探针：全站 Basic Auth → exec probe 用 Secret 注入的 $POWERI_WEB_PASSWORD 认证，<500 即就绪
+if (UI) {
+  const probe = { exec: { command: ["node", "-e", "fetch('http://127.0.0.1:30141/',{headers:{Authorization:'Basic '+Buffer.from('pi:'+process.env.POWERI_WEB_PASSWORD).toString('base64')}}).then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"] }, initialDelaySeconds: 15, periodSeconds: 10, timeoutSeconds: 5 };
+  const uiUser = process.env.POWERI_UI_USER ?? users[0];
+  const uiPass = process.env.POWERI_WEB_PASSWORD ?? `poweri-${uiUser}`;
+  out.length = 0;
+  out.push(`---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: poweri-web, namespace: ${NS} }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: poweri, role: ui } }
+  template:
+    metadata: { labels: { app: poweri, role: ui } }
+    spec:
+      containers:
+        - name: poweri-web
+          image: poweri-web:local
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 30141 }]
+          env:
+            - { name: POWERI_GATEWAY_URL, value: "http://gateway.poweri.svc.cluster.local:8080" }
+            - { name: POWERI_GATEWAY_CWD, value: "/workspace" }
+            - name: POWERI_GATEWAY_TOKEN
+              valueFrom: { secretKeyRef: { name: poweri-secrets, key: POWERI_UI_TOKEN } }
+            - name: POWERI_WEB_PASSWORD
+              valueFrom: { secretKeyRef: { name: poweri-secrets, key: POWERI_WEB_PASSWORD } }
+          readinessProbe: ${JSON.stringify(probe)}
+          livenessProbe: ${JSON.stringify(probe)}
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { cpu: "1", memory: 1Gi }
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+---
+apiVersion: v1
+kind: Service
+metadata: { name: poweri-web, namespace: ${NS} }
+spec:
+  type: NodePort
+  selector: { app: poweri, role: ui }
+  ports:
+    - { port: 30141, targetPort: 30141, nodePort: 30341 }`);
+  execFileSync("kubectl", ["apply", "-f", "-"], { input: out.join("\n"), stdio: ["pipe", "ignore", "inherit"] });
+  console.log(`✓ PowerI-Web UI 已部署（NodePort 30341，用户 ${uiUser}，密码 ${uiPass}）`);
+}
 
 // ── 2b. pi-web 可视化实例（ticket 21：每用户 Pod 挂该用户 PVC，与 worker 同一数据布局）──
 // 探针：全站 Basic Auth（无认证连接被重置）→ exec probe 用 Secret 注入的 $PI_WEB_PASSWORD 认证，<500 即就绪
