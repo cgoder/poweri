@@ -1,7 +1,7 @@
 # 27 — UI 部署形态：单一 UI Deployment → 网关 + 退役旧形态
 
 - **Type:** task
-- **Status:** ready
+- **Status:** claimed
 - **Blocked by:** 26
 - **Depends on:**
 
