@@ -24,7 +24,7 @@ export const SESSIONS_CONTAINER_DIR = "/home/piuser/.pi/agent/sessions";
 // messageCount = messagesFromJsonl 产出条数（与 /v1/sessions/<id>/messages 天然一致）
 export function sessionListEntry(id, lines, modified) {
   const msgs = messagesFromJsonl(lines);
-  let cwd = "", created = "";
+  let cwd = "", created = "", name = "";
   for (const line of lines.split("\n")) {
     if (!line.trim()) continue;
     try {
@@ -32,5 +32,13 @@ export function sessionListEntry(id, lines, modified) {
       if (j.type === "session") { cwd = j.cwd ?? ""; created = j.timestamp ?? ""; break; }
     } catch { /* 截断行跳过 */ }
   }
-  return { id, cwd, created, modified, messageCount: msgs.length, firstMessage: msgs.find((m) => m.role === "user")?.text ?? "" };
+  // 会话名（ticket 29）：反向找最新 session_info 行（pi 的 appendSessionInfo/getSessionName 约定）
+  for (const line of lines.split("\n").reverse()) {
+    if (!line.trim()) continue;
+    try {
+      const j = JSON.parse(line);
+      if (j.type === "session_info" && j.name) { name = j.name; break; }
+    } catch { /* 跳过 */ }
+  }
+  return { id, cwd, created, modified, messageCount: msgs.length, firstMessage: msgs.find((m) => m.role === "user")?.text ?? "", name };
 }

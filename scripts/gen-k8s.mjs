@@ -49,13 +49,12 @@ run(["delete", "secret", "poweri-secrets", "-n", NS, "--ignore-not-found=true"])
 const secretLiterals = [`POWERI_AI_API_KEY=${gwApiKey}`, `POWERI_GATEWAY_USERS=${GW_USERS}`];
 // ticket 21：pi-web 每实例 Basic Auth 密码（Secret 化，不进 ConfigMap；默认 poweri-<user>，可 POWERI_PIWEB_PASSWORD_<USER> 覆盖）
 if (PIWEB) for (const u of users) secretLiterals.push(`PI_WEB_PASSWORD_${u.toUpperCase()}=${process.env[`POWERI_PIWEB_PASSWORD_${u.toUpperCase()}`] ?? `poweri-${u}`}`);
-// ticket 27：PowerI-Web UI 凭据 — 单密码（POWERI_WEB_PASSWORD 可覆盖）+ 该用户网关 token（认证打通前的形态，ticket 28 改每用户账号）
-if (UI) {
-  const uiUser = process.env.POWERI_UI_USER ?? users[0];
-  const uiToken = GW_USERS.split(";").map((p) => p.split(":")).find(([u]) => u === uiUser)?.[1] ?? "";
-  secretLiterals.push(`POWERI_WEB_PASSWORD=${process.env.POWERI_WEB_PASSWORD ?? `poweri-${uiUser}`}`);
-  secretLiterals.push(`POWERI_UI_TOKEN=${uiToken}`);
-}
+// ticket 27/28：PowerI-Web UI 凭据 — 无条件创建（防未带 --ui 的 gen-k8s 重建 Secret 丢键，pod 进 CreateContainerConfigError）
+// POWERI_WEB_PASSWORD=单用户回退密码；POWERI_UI_TOKEN=该用户网关 token（POWERI_UI_USER 可选，默认首个）
+const uiUser = process.env.POWERI_UI_USER ?? users[0];
+const uiToken = GW_USERS.split(";").map((p) => p.split(":")).find(([u]) => u === uiUser)?.[1] ?? "";
+secretLiterals.push(`POWERI_WEB_PASSWORD=${process.env.POWERI_WEB_PASSWORD ?? `poweri-${uiUser}`}`);
+secretLiterals.push(`POWERI_UI_TOKEN=${uiToken}`);
 execFileSync("kubectl", ["create", "secret", "generic", "poweri-secrets", ...secretLiterals.map((l) => `--from-literal=${l}`), "-n", NS], { stdio: "ignore" });
 console.log(`✓ Secret poweri-secrets（模型 apiKey + 网关用户 token${PIWEB ? " + pi-web 密码" : ""}${UI ? " + PowerI-Web 密码/token" : ""}）`);
 

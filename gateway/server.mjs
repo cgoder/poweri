@@ -13,12 +13,12 @@
 //   POWERI_GATEWAY_PORT / POWERI_GATEWAY_USERS("alice:token-a;bob:token-b") / POWERI_POD_PROVIDER
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync, appendFileSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { WebSocketServer } from "ws";
 import { getLastSession, newSessionId, setLastSession } from "./store.mjs";
-import { streamPod, sessionFileHost, POD_PROVIDER, fetchWorkerSessions, fetchWorkerSessionJsonl, fetchWorkerFiles, fetchWorkerFile, fetchWorkerSkills, userPiDir, userWorkspaceDir } from "./pods.mjs";
+import { streamPod, sessionFileHost, POD_PROVIDER, fetchWorkerSessions, fetchWorkerSessionJsonl, fetchWorkerSessionRename, fetchWorkerSessionDelete, fetchWorkerFiles, fetchWorkerFile, fetchWorkerSkills, userPiDir, userWorkspaceDir } from "./pods.mjs";
 import { withLock } from "./queue.mjs";
 import { messagesFromJsonl } from "./session-parse.mjs";
 import { appendUsage, invoiceFor, scanUsage } from "./metering.mjs";
@@ -281,6 +281,58 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // ticket 29：会话改名 — k8s 经 bridge 追加 session_info 行；本地直接追加
+  if (url.pathname.startsWith("/v1/sessions/") && !url.pathname.endsWith("/messages") && !url.pathname.endsWith("/jsonl") && req.method === "PATCH") {
+    const userId = userFromReq(req);
+    if (!userId) { sendJson(res, 401, { error: "unauthorized" }); return; }
+    const sessionId = url.pathname.split("/")[3];
+    if (!sessionId) { sendJson(res, 400, { error: "sessionId required" }); return; }
+    const body = await readJson(req);
+    const name = String(body?.name ?? "").replace(/[\r\n]+/g, " ").trim();
+    if (!name) { sendJson(res, 400, { error: "name required" }); return; }
+    try {
+      if (POD_PROVIDER === "k8s") {
+        const saved = await fetchWorkerSessionRename(userId, sessionId, name);
+        if (saved === null) { sendJson(res, 404, { error: "session not found" }); return; }
+        sendJson(res, 200, { sessionId, name });
+      } else {
+        const file = sessionFileHost(userId, sessionId);
+        if (!existsSync(file)) { sendJson(res, 404, { error: "session not found" }); return; }
+        let parentId = "";
+        const arr = readFileSync(file, "utf8").split("\n");
+        for (let i = arr.length - 1; i >= 0; i--) {
+          if (!arr[i].trim()) continue;
+          try { parentId = JSON.parse(arr[i]).id ?? ""; } catch {}
+          break;
+        }
+        appendFileSync(file, JSON.stringify({ type: "session_info", id: randomUUID(), parentId, timestamp: new Date().toISOString(), name }) + "\n");
+        sendJson(res, 200, { sessionId, name });
+      }
+    } catch (e) { sendJson(res, 502, { error: String(e?.message ?? e) }); }
+    return;
+  }
+
+  // ticket 29：会话删除 — k8s 经 bridge 删 worker PVC 上的会话 JSONL；本地删文件（不动用户 workspace）
+  if (url.pathname.startsWith("/v1/sessions/") && !url.pathname.endsWith("/messages") && !url.pathname.endsWith("/jsonl") && req.method === "DELETE") {
+    const userId = userFromReq(req);
+    if (!userId) { sendJson(res, 401, { error: "unauthorized" }); return; }
+    const sessionId = url.pathname.split("/")[3];
+    if (!sessionId) { sendJson(res, 400, { error: "sessionId required" }); return; }
+    try {
+      if (POD_PROVIDER === "k8s") {
+        const deleted = await fetchWorkerSessionDelete(userId, sessionId);
+        if (deleted === null) { sendJson(res, 404, { error: "session not found" }); return; }
+        sendJson(res, 200, { deleted: true, sessionId });
+      } else {
+        const file = sessionFileHost(userId, sessionId);
+        if (!existsSync(file)) { sendJson(res, 404, { error: "session not found" }); return; }
+        unlinkSync(file);
+        sendJson(res, 200, { deleted: true, sessionId });
+      }
+    } catch (e) { sendJson(res, 502, { error: String(e?.message ?? e) }); }
+    return;
+  }
+
   if (url.pathname.startsWith("/v1/sessions/") && url.pathname.endsWith("/messages") && req.method === "GET") {
     // 断线重连历史补发：从用户 PVC 上的会话 JSONL 提取消息（事件已持久化，重连不丢）
     const userId = userFromReq(req);
@@ -306,6 +358,16 @@ const server = createServer(async (req, res) => {
     if (!isAdmin(req)) { sendJson(res, 401, { error: "unauthorized" }); return; }
     const userId = url.searchParams.get("userId");
     if (!userId) { sendJson(res, 400, { error: "userId required" }); return; }
+    const from = Number(url.searchParams.get("from") ?? -Infinity);
+    const to = Number(url.searchParams.get("to") ?? Infinity);
+    sendJson(res, 200, scanUsage(userId, from, to));
+    return;
+  }
+
+  if (url.pathname === "/v1/users/me/usage" && req.method === "GET") {
+    // ticket 29：用户侧计量展示 — Bearer 用户 token，返回该用户计量记录（admin usage 的自作用域）
+    const userId = userFromReq(req);
+    if (!userId) { sendJson(res, 401, { error: "unauthorized" }); return; }
     const from = Number(url.searchParams.get("from") ?? -Infinity);
     const to = Number(url.searchParams.get("to") ?? Infinity);
     sendJson(res, 200, scanUsage(userId, from, to));

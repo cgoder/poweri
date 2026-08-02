@@ -7,7 +7,8 @@
 
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync, unlinkSync, appendFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { WebSocketServer } from "ws";
 import { sessionListEntry, SESSIONS_CONTAINER_DIR } from "./session-parse.mjs";
@@ -160,9 +161,14 @@ function scanSkills() {
   return skills.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-server.on("request", (req, res) => {
+server.on("request", async (req, res) => {
   const url = new URL(req.url ?? "/", "http://localhost");
   const send = (code, obj) => { res.writeHead(code, { "content-type": "application/json" }); res.end(JSON.stringify(obj)); };
+  const readJson = async (r) => {
+    let body = "";
+    for await (const chunk of r) body += chunk;
+    try { return JSON.parse(body || "{}"); } catch { return {}; }
+  };
   if (url.pathname === "/skills" && req.method === "GET") {
     try { send(200, { skills: scanSkills() }); } catch (e) { send(500, { error: String(e?.message ?? e) }); }
     return;
@@ -201,6 +207,39 @@ server.on("request", (req, res) => {
       const lines = readFileSync(join(SESSIONS_DIR, `${id}.jsonl`), "utf8");
       send(200, { id, lines });
     } catch { send(404, { error: "session not found" }); }
+    return;
+  }
+  // ticket 29：会话改名 — 追加 pi session_info 行（appendSessionInfo/getSessionName 约定）
+  if (url.pathname.startsWith("/sessions/") && req.method === "PATCH") {
+    const id = decodeURIComponent(url.pathname.slice("/sessions/".length).replace(/[^a-zA-Z0-9._-]/g, ""));
+    try {
+      const body = await readJson(req);
+      const name = String(body?.name ?? "").replace(/[\r\n]+/g, " ").trim();
+      if (!name) { send(400, { error: "name required" }); return; }
+      const file = join(SESSIONS_DIR, `${id}.jsonl`);
+      if (!existsSync(file)) { send(404, { error: "session not found" }); return; }
+      // parentId = 文件末行 id（线性会话的 leaf；branch 场景 pi 自行修正）
+      let parentId = "";
+      const lines = readFileSync(file, "utf8").split("\n");
+      for (let i = lines.length - 1; i >= 0; i--) {
+        if (!lines[i].trim()) continue;
+        try { parentId = JSON.parse(lines[i]).id ?? ""; } catch {}
+        break;
+      }
+      appendFileSync(file, JSON.stringify({ type: "session_info", id: randomUUID(), parentId, timestamp: new Date().toISOString(), name }) + "\n");
+      send(200, { id, name });
+    } catch (e) { send(500, { error: String(e?.message ?? e) }); }
+    return;
+  }
+  // ticket 29：会话删除 — 删 worker PVC 上的会话 JSONL（不动用户 workspace）
+  if (url.pathname.startsWith("/sessions/") && req.method === "DELETE") {
+    const id = decodeURIComponent(url.pathname.slice("/sessions/".length).replace(/[^a-zA-Z0-9._-]/g, ""));
+    const file = join(SESSIONS_DIR, `${id}.jsonl`);
+    if (!existsSync(file)) { send(404, { error: "session not found" }); return; }
+    try {
+      unlinkSync(file);
+      send(200, { deleted: true, id });
+    } catch (e) { send(500, { error: String(e?.message ?? e) }); }
     return;
   }
   res.writeHead(404); res.end();

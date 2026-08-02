@@ -55,13 +55,25 @@ test("sessionListEntry：真实文件结构 → 完整 DTO（cwd/created/消息�
   assert.equal(e.firstMessage, "列出所有 skills");
   // messageCount 与历史端点（messagesFromJsonl）产出条数天然一致
   assert.equal(e.messageCount, messagesFromJsonl(REAL_SESSION).length);
+  assert.equal(e.name, ""); // 无 session_info 行时为空
 });
 
 test("sessionListEntry：空/无消息文件", () => {
   const e = sessionListEntry("empty", "", "2026-08-02T00:00:00Z");
-  assert.deepEqual(e, { id: "empty", cwd: "", created: "", modified: "2026-08-02T00:00:00Z", messageCount: 0, firstMessage: "" });
+  assert.deepEqual(e, { id: "empty", cwd: "", created: "", modified: "2026-08-02T00:00:00Z", messageCount: 0, firstMessage: "", name: "" });
 });
 
 test("SESSIONS_CONTAINER_DIR 与 worker 容器布局一致", () => {
   assert.equal(SESSIONS_CONTAINER_DIR, "/home/piuser/.pi/agent/sessions");
+});
+
+// ── ticket 29：会话改名（session_info 行追加与解析）与删除 ──
+
+test("sessionListEntry：解析最新 session_info 的 name", () => {
+  const withInfo = REAL_SESSION + '\n{"type":"session_info","id":"si-1","parentId":"x","timestamp":"2026-08-02T01:00:00Z","name":"我的会话"}';
+  const e = sessionListEntry("s1", withInfo, "2026-08-02T01:00:00Z");
+  assert.equal(e.name, "我的会话");
+  // 反向取最新一条
+  const withTwo = withInfo + '\n{"type":"session_info","id":"si-2","parentId":"si-1","timestamp":"2026-08-02T02:00:00Z","name":"改名后"}';
+  assert.equal(sessionListEntry("s2", withTwo, "2026-08-02T02:00:00Z").name, "改名后");
 });

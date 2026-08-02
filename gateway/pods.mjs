@@ -200,6 +200,24 @@ export async function fetchWorkerSessionJsonl(userId, sessionId) {
   return (await res.json()).lines ?? "";
 }
 
+export async function fetchWorkerSessionRename(userId, sessionId, name) {
+  const res = await fetch(`http://${k8sBridgeAddr(userId)}/sessions/${encodeURIComponent(sessionId)}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`worker PATCH /sessions/<id> HTTP ${res.status}`);
+  return (await res.json()).name ?? "";
+}
+
+export async function fetchWorkerSessionDelete(userId, sessionId) {
+  const res = await fetch(`http://${k8sBridgeAddr(userId)}/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`worker DELETE /sessions/<id> HTTP ${res.status}`);
+  return true;
+}
+
 // 工作区文件/技能：网关代理到 worker bridge HTTP 面（读用户 PVC）
 export async function fetchWorkerFiles(userId, path, recursive) {
   const res = await fetch(`http://${k8sBridgeAddr(userId)}/files?path=${encodeURIComponent(path ?? "/")}&recursive=${recursive ? "1" : "0"}`);
