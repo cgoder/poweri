@@ -106,7 +106,7 @@ kind: Service
 metadata: { name: worker-${u}, namespace: ${NS} }
 spec:
   type: NodePort
-  selector: { app: poweri, user: ${u} }
+  selector: { app: poweri, role: worker, user: ${u} }
   ports:
     - { port: 8081, targetPort: 8081, nodePort: ${port} }`);
 }

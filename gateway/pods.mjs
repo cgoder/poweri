@@ -166,6 +166,7 @@ function bridgePodStream(wsUrl, message, requestId) {
 
 // ── 路由入口 ─────────────────────────────────────────────────────────
 const PROVIDER = process.env.POWERI_POD_PROVIDER ?? "fake";
+export const POD_PROVIDER = PROVIDER;
 const BRIDGE_URL = process.env.POWERI_POD_BRIDGE_URL ?? "ws://localhost:8081";
 
 // k8s：真实 K8s（每用户 PVC + Deployment + Service；静态映射）
@@ -176,10 +177,27 @@ const K8S_USERS = Object.fromEntries(
     .map((p) => { const [u, a, b] = p.split(":"); return [u, b ? `${a}:${b}` : a?.trim()]; })
 );
 function k8sBridgeUrl(userId, sessionId) {
+  return `ws://${k8sBridgeAddr(userId)}/?session=${encodeURIComponent(SESSION_FILE_CONTAINER(sessionId))}`;
+}
+
+// k8s 会话文件 HTTP 面（bridge 的 createServer 同端口承载 HTTP+WS）：网关经此读 worker PVC
+function k8sBridgeAddr(userId) {
   const target = K8S_USERS[userId];
   if (!target) throw new Error(`k8s 无该用户映射: ${userId}（POWERI_K8S_USERS）`);
-  const addr = target.includes(":") ? target : `${process.env.POWERI_K8S_NODE_HOST ?? "127.0.0.1"}:${target}`;
-  return `ws://${addr}/?session=${encodeURIComponent(SESSION_FILE_CONTAINER(sessionId))}`;
+  return target.includes(":") ? target : `${process.env.POWERI_K8S_NODE_HOST ?? "127.0.0.1"}:${target}`;
+}
+
+export async function fetchWorkerSessions(userId) {
+  const res = await fetch(`http://${k8sBridgeAddr(userId)}/sessions`);
+  if (!res.ok) throw new Error(`worker /sessions HTTP ${res.status}`);
+  return (await res.json()).sessions ?? [];
+}
+
+export async function fetchWorkerSessionJsonl(userId, sessionId) {
+  const res = await fetch(`http://${k8sBridgeAddr(userId)}/sessions/${encodeURIComponent(sessionId)}`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`worker /sessions/<id> HTTP ${res.status}`);
+  return (await res.json()).lines ?? "";
 }
 
 // 路由入口：统一返回 Promise<{ stream: AsyncIterable<object>, abort: () => void }>

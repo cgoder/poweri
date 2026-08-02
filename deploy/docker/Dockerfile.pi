@@ -16,8 +16,9 @@ RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent@${PI_VERSION
 ARG BUILD_MARKER=""
 RUN echo "poweri-worker ${BUILD_MARKER}" > /etc/poweri-version
 
-# 桥：Node + ws（单运行时原则）
+# 桥：Node + ws（单运行时原则）；会话 DTO 共享纯模块一并打包（bridge 与 gateway 同源）
 COPY bridge/ /bridge/
+COPY gateway/session-parse.mjs /bridge/session-parse.mjs
 RUN cd /bridge && npm install --omit=dev --ignore-scripts
 
 # User Memory 扩展（ticket 08）：打包进镜像，桥以 -e 加载；typebox 从 pi 的 node_modules 解析

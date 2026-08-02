@@ -13,12 +13,14 @@
 //   POWERI_GATEWAY_PORT / POWERI_GATEWAY_USERS("alice:token-a;bob:token-b") / POWERI_POD_PROVIDER
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { WebSocketServer } from "ws";
 import { getLastSession, newSessionId, setLastSession } from "./store.mjs";
-import { streamPod, sessionFileHost } from "./pods.mjs";
+import { streamPod, sessionFileHost, POD_PROVIDER, fetchWorkerSessions, fetchWorkerSessionJsonl, userPiDir } from "./pods.mjs";
 import { withLock } from "./queue.mjs";
+import { messagesFromJsonl } from "./session-parse.mjs";
 import { appendUsage, invoiceFor, scanUsage } from "./metering.mjs";
 import { logEvent } from "./log.mjs";
 
@@ -54,6 +56,19 @@ async function readJson(req) {
 function sendJson(res, status, obj) {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(obj));
+}
+
+// 本地模式（docker/bridge）会话列表：扫该用户数据目录（DTO 与 bridge 共用 sessionListEntry）
+function localSessions(userId) {
+  const dir = path.join(userPiDir(userId), "sessions");
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((f) => f.endsWith(".jsonl"))
+    .map((f) => {
+      const full = path.join(dir, f);
+      const st = statSync(full);
+      return sessionListEntry(f.slice(0, -6), readFileSync(full, "utf8"), new Date(st.mtime).toISOString());
+    });
 }
 
 // 会话解析：返回 (sessionId, 是否新建)
@@ -156,27 +171,33 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/v1/sessions" && req.method === "GET") {
+    // 会话列表（k8s 经 worker bridge HTTP 面读 PVC；本地模式扫数据目录）
+    const userId = userFromReq(req);
+    if (!userId) { sendJson(res, 401, { error: "unauthorized" }); return; }
+    try {
+      const sessions = POD_PROVIDER === "k8s" ? await fetchWorkerSessions(userId) : localSessions(userId);
+      sendJson(res, 200, { sessions });
+    } catch (e) { sendJson(res, 502, { error: String(e?.message ?? e) }); }
+    return;
+  }
+
   if (url.pathname.startsWith("/v1/sessions/") && url.pathname.endsWith("/messages") && req.method === "GET") {
     // 断线重连历史补发：从用户 PVC 上的会话 JSONL 提取消息（事件已持久化，重连不丢）
     const userId = userFromReq(req);
     if (!userId) { sendJson(res, 401, { error: "unauthorized" }); return; }
     const sessionId = url.pathname.split("/")[3];
     if (!sessionId) { sendJson(res, 400, { error: "sessionId required" }); return; }
-    const file = sessionFileHost(userId, sessionId);
-    if (!existsSync(file)) { sendJson(res, 404, { error: "session not found" }); return; }
-    const messages = [];
-    for (const line of readFileSync(file, "utf8").split("\n")) {
-      if (!line.trim()) continue;
-      try {
-        const o = JSON.parse(line);
-        const m = o.message;
-        if (!m?.role) continue;
-        const parts = m.content ?? [];
-        const text = parts.filter((c) => c.type === "text").map((c) => c.text).join("");
-        const thinking = parts.filter((c) => c.type === "thinking").map((c) => c.thinking ?? c.text ?? "").join("");
-        if (!text && !thinking) continue;
-        messages.push({ role: m.role, text, thinking: thinking || undefined, ts: o.timestamp });
-      } catch { /* 跳过截断行 */ }
+    // k8s provider：会话 JSONL 在 worker PVC，经 bridge HTTP 面读（修复 ticket 20 发现的本地读 bug）
+    let messages;
+    if (POD_PROVIDER === "k8s") {
+      const lines = await fetchWorkerSessionJsonl(userId, sessionId);
+      if (lines === null) { sendJson(res, 404, { error: "session not found" }); return; }
+      messages = messagesFromJsonl(lines);
+    } else {
+      const file = sessionFileHost(userId, sessionId);
+      if (!existsSync(file)) { sendJson(res, 404, { error: "session not found" }); return; }
+      messages = messagesFromJsonl(readFileSync(file, "utf8"));
     }
     sendJson(res, 200, { sessionId, messages });
     return;

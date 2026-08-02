@@ -1,7 +1,7 @@
 # 23 — Gateway 会话列表/历史 API（k8s provider 修正）
 
 Type: task
-Status: claimed
+Status: resolved
 Blocked by:
 Created: 2026-08-02
 Tags: gateway, k8s, session-api, blocker
@@ -39,11 +39,34 @@ Tags: gateway, k8s, session-api, blocker
 
 ## 检查清单
 
-- [ ] bridge：GET /sessions + GET /sessions/<id>
-- [ ] gateway：GET /v1/sessions + messages 修复（k8s 走 bridge）
-- [ ] 单元测试（JSONL 映射）+ verify-23.mjs
-- [ ] 重建镜像 + 重新部署
-- [ ] code-review（双轴）
-- [ ] Answer + resolved
+- [x] bridge：GET /sessions + GET /sessions/<id>
+- [x] gateway：GET /v1/sessions + messages 修复（k8s 走 bridge）
+- [x] 单元测试（共享 DTO 真 fixture，13/13）+ verify-23.mjs（7/7）
+- [x] 重建镜像 + 重新部署
+- [x] code-review（双轴）+ Answer + resolved
+
+## Answer
+
+**完成：网关会话列表/历史 API 在 k8s provider 下可用，7/7 集成 + 13/13 单测通过。**
+
+### 实现
+
+- **bridge HTTP 面**（bridge/server.mjs）：`GET /sessions`（列表）+ `GET /sessions/<id>`（原始 JSONL，basename 防穿越）；会话 DTO 抽到共享纯模块 `gateway/session-parse.mjs`（`sessionListEntry`），`messageCount` 由构造与历史端点一致（复用 `messagesFromJsonl`），Dockerfile.pi 一行 COPY 进 worker 镜像。
+- **gateway**（server.mjs）：`GET /v1/sessions`（Bearer；k8s 经 bridge HTTP fetch，本地模式扫数据目录）；`GET /v1/sessions/<id>/messages` 修复——k8s 时经 bridge 读 worker PVC，不再读网关本地 DATA_DIR（ticket 20 发现的 bug）。
+- **测试**：`gateway/test/session-api.test.mjs` 3 新用例（fixture 取自真实 worker PVC 会话文件 msb55j0s）；`verify-23.mjs` 7 项（401/列表字段完整含 msb*/历史不再 404/双向用户隔离/新建会话出现在列表）。
+
+### 顺带修复的真实生产 bug（verify-23 抓出）
+
+**worker Service selector 过宽**：`selector: {app: poweri, user: <u>}` 会匹配到同 label 的 piweb/piweb2 Pod（ticket 21/22 引入，不监听 8081），kube-proxy 端点里有 3 个地址（1 真 2 假），worker 链路自 ticket 21 起一直靠网关 connectWs 的 20 次重试"侥幸"通过，间歇性 ECONNREFUSED。修复：selector 加 `role: worker`。教训：多形态 Deployment 共享 app/user label 时 Service selector 必须带 role。
+
+### code-review 结论（双轴，固定点 0dcd53d）
+
+- 标准轴：无硬违例；主要发现 = DTO 双实现语义分裂（bridge 计 user-only / 本地计全部、created 恒空）→ 已抽共享 `sessionListEntry` 消灭；常量重复（SESSIONS_DIR vs SESSION_FILE_CONTAINER）→ 共享 `SESSIONS_CONTAINER_DIR`；遗留：`POD_PROVIDER==="k8s"` 两处 if（2 个站点不值得 dispatch map，接受）。
+- 规格轴：TDD 决策未覆盖新映射 → 已补真 fixture 单测；VP1/VP3 断言弱 → 已加强（msb* 存在、created/messageCount/firstMessage 非空、双向隔离非空洞）；scope-creep（piId/本地列表）→ piId 重构中移除，本地列表保留并记录（同端点对本地 dev 有用）。
+
+### 未做/债务
+
+- bridge 列表每次请求全量读+解析所有会话文件（`ponytail:` 已标注）——会话量增大时需缓存/分页。
+- 会话列表未分页、无创建时间排序键以外的排序参数（够用）。
 
 ## Comments

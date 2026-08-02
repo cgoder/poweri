@@ -7,10 +7,14 @@
 
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { WebSocketServer } from "ws";
+import { sessionListEntry, SESSIONS_CONTAINER_DIR } from "./session-parse.mjs";
 
 const PORT = Number(process.env.POWERI_BRIDGE_PORT ?? 8081);
+// 会话目录：网关 k8s provider 经 HTTP 面读会话列表/历史（默认 worker 镜像布局）
+const SESSIONS_DIR = process.env.POWERI_BRIDGE_SESSIONS_DIR ?? SESSIONS_CONTAINER_DIR;
 const MODEL = (process.env.POWERI_AI_MODEL ?? "").trim();
 const SESSION = (process.env.POWERI_SESSION_PATH ?? "").trim();
 // 扩展加载：POWERI_EXTENSIONS 逗号/空格分隔的路径列表；默认带镜像内置 User Memory 扩展（路径存在才加，兼容宿主直跑）
@@ -70,6 +74,38 @@ wss.on("connection", (ws, req) => {
   });
 
   console.error(`[bridge] ws open → spawn pi (pid=${proc.pid})`);
+});
+
+// ── HTTP 面：会话列表/读取（k8s provider 下网关经此读 worker PVC 上的会话 JSONL）──
+// GET /sessions            → { sessions: [sessionListEntry DTO] }
+// GET /sessions/<id>       → { id, lines: "<原始 JSONL>" }
+// ponytail: 每次请求全量读+解析所有会话文件，会话量大时阻塞 WS 通道——加缓存/分页再议
+server.on("request", (req, res) => {
+  const url = new URL(req.url ?? "/", "http://localhost");
+  const send = (code, obj) => { res.writeHead(code, { "content-type": "application/json" }); res.end(JSON.stringify(obj)); };
+  if (url.pathname === "/sessions" && req.method === "GET") {
+    try {
+      const sessions = readdirSync(SESSIONS_DIR)
+        .filter((f) => f.endsWith(".jsonl"))
+        .map((f) => {
+          const st = statSync(join(SESSIONS_DIR, f));
+          return sessionListEntry(f.replace(/\.jsonl$/, ""), readFileSync(join(SESSIONS_DIR, f), "utf8"), new Date(st.mtime).toISOString());
+        })
+        .sort((a, b) => (b.modified || "").localeCompare(a.modified || ""));
+      send(200, { sessions });
+    } catch (e) { send(500, { error: String(e?.message ?? e) }); }
+    return;
+  }
+  if (url.pathname.startsWith("/sessions/") && req.method === "GET") {
+    // basename 防路径穿越；文件名为 <gatewayId>.jsonl
+    const id = decodeURIComponent(url.pathname.slice("/sessions/".length).replace(/[^a-zA-Z0-9._-]/g, ""));
+    try {
+      const lines = readFileSync(join(SESSIONS_DIR, `${id}.jsonl`), "utf8");
+      send(200, { id, lines });
+    } catch { send(404, { error: "session not found" }); }
+    return;
+  }
+  res.writeHead(404); res.end();
 });
 
 server.listen(PORT, () => console.error(`[bridge] listening on :${PORT}  model=${piArgs.join(" ")}`));
