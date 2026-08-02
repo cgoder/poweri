@@ -20,7 +20,7 @@ gateway/           无状态网关：认证/路由/会话续接/并发串行/流
 bridge/            每个 Worker Pod 内的 stdio↔WebSocket 桥（每连接一个 pi --mode rpc 子进程）
 memory-extension/  User Memory pi 扩展（remember 工具 + 预算注入，随执行循环读写）
 deploy/            docker 镜像（poweri-worker + poweri-gateway）+ k8s manifests（每用户 PVC/Deployment/NodePort、NetworkPolicy、gateway 部署）+ config/pi 平台配置目录
-scripts/           构建(build-image/build-gateway)/配置生成(gen-pi-config)/K8s 部署(gen-k8s)/验证(verify-05~12、verify-19、verify-23~30、verify-k8s)
+scripts/           构建(build-image/build-gateway)/配置生成(gen-pi-config)/K8s 部署(gen-k8s)/metrics-server 安装(install-metrics-server)/验证(verify-05~12、verify-19、verify-23~30、verify-k8s)
 docs/              ADR / design / research / agents
 data/              PoC 数据目录（每用户 PVC 占位，已 gitignore）
 ```
@@ -48,6 +48,8 @@ node scripts/verify-19.mjs alice     # 部署 gateway+worker、ConfigMap 无明�
 node scripts/verify-27.mjs alice,bob # UI 部署形态 + 旧形态废弃
 node scripts/verify-28.mjs alice,bob # 每用户账号 → 网关 token 认证隔离
 node scripts/verify-29.mjs alice     # 会话改名/删除 + 用户侧计量
+# 6b. metrics-server（OrbStack k3s 必需：HPA CPU 指标依赖；reset/新机后务必先跑，否则 verify-30 失败）
+node scripts/install-metrics-server.mjs  # 幂等：阿里云镜像 + --kubelet-insecure-tls，见 OPERATIONS.md §6.5
 node scripts/verify-30.mjs alice     # 生产收口（资源限额/HPA/NetworkPolicy）
 ```
 

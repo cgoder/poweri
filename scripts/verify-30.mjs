@@ -1,6 +1,7 @@
 // verify-30：生产收口可验证项（ticket 30）
 // 已落地：worker/gateway 容器资源限额（HPA 前提）、HPA K8s 实跑（压测 1→2 扩容）、NetworkPolicy 应用
 // 未决（用户决策后另开）：镜像仓库+CI/CD、Ingress/TLS、网关多副本共享元数据存储、NetworkPolicy enforcement（需 Cilium）
+// 前置：OrbStack 本地需先装 metrics-server（node scripts/install-metrics-server.mjs），否则 HPA CPU 指标为空必失败
 // 用法：node scripts/verify-30.mjs [user]（默认 alice）
 import { execFileSync } from "node:child_process";
 
