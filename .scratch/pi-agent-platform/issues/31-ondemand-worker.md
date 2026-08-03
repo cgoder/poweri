@@ -31,12 +31,9 @@
 carol 首次对话成功（真实模型回复）→ worker-carol + carol-pvc 自动创建 → 会话落 carol 的 PVC
 （与 alice 零重叠）→ 与 alice 运行在不同 Pod。
 
-## 遗留（明天继续）
+## 遗留（已由 ticket 32 收口）
 
-- **缩容缺失**：新用户离开后 worker 不缩容。按需开通只做了"开"，没有做"关"——worker 常驻占资源
-  （~10k 用户的规模下每个空闲用户一个 1CPU/512Mi pod 不可持续）。方向：空闲超时缩容
-  （gateway 检测 worker 空闲 N 分钟 → 删 Deployment/PVC 或 scale 0）+ HPA 下界 0 需配套
-  （当前 HPA min=1 与缩容冲突）。此问题由用户 2026-08-02 提出，未排期。
+- ~~**缩容缺失**：新用户离开后 worker 不缩容。~~ → 见 `32-worker-scaledown.md`（空闲超时 scale-to-0，PVC 保留，10/10 验证通过）。
 
 ## Comments
 
