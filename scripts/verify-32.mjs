@@ -1,13 +1,13 @@
-// verify-32：空闲超时缩容（ticket 31 遗留 → 32）
-// 场景：动态用户 carol 按需开通 worker（verify-31 的"开"）→ 空闲超过 POWERI_WORKER_IDLE_MINUTES
-// → 网关缩容 worker-carol 到 0（PVC 保留，数据不丢）→ carol 再次对话自动拉起（replicas 1，会话仍在）。
-// 附带断言：静态预置用户 alice 常驻（HPA min=1 热备），不被缩容。
+// verify-32：空闲超时缩容（ticket 31 遗留 → 32，统一版）
+// 场景：所有用户行为一致——预置用户 alice 与按需开通用户 carol 都走同一套规则：
+// 首次对话（热 pod/按需开通）→ 空闲超过 POWERI_WORKER_IDLE_MINUTES → 网关缩容 worker 到 0
+// （PVC 保留，数据不丢）→ 再次对话自动拉起（replicas 1，会话仍在）。
 // 前置：poweri-worker / poweri-gateway / poweri-web 镜像已构建；POWERI_AI_API_KEY 在环境。
 // 用法：node scripts/verify-32.mjs [存量用户,新用户]（默认 alice,carol）
 import { execFileSync } from "node:child_process";
 
-const [OLD, NEW] = (process.argv[2] ?? "alice,carol").split(",").map((s) => s.trim());
 const IDLE_MIN = "1"; // 验证用短阈值；生产默认 30（gen-k8s 注入）
+const [OLD, NEW] = (process.argv[2] ?? "alice,carol").split(",").map((s) => s.trim());
 const GW_USERS = process.env.POWERI_GATEWAY_USERS ?? `${OLD}:token-${OLD};${NEW}:token-${NEW}`;
 const WEB_USERS = process.env.POWERI_WEB_USERS ?? `${OLD}:poweri-${OLD};${NEW}:poweri-${NEW}`;
 const UI_PORT = 30341;
@@ -95,32 +95,40 @@ try {
 
   // 2. 前置断言
   console.log(`── 2. 前置：${NEW} 无预置 worker，${OLD} 常驻 ──`);
+  // 2. 前置断言
+  console.log(`── 2. 前置：${NEW} 无预置 worker，${OLD} 有 ──`);
   ok(`部署后 ${NEW} 无 worker Deployment`, !deployExists(`worker-${NEW}`));
   ok(`部署后 ${OLD} worker 存在`, deployExists(`worker-${OLD}`));
+  // 3. 首次对话：NEW 按需开通（"开"）；OLD 预置热 pod 秒回。两用户行为同一套规则
+  const sid1 = {};
+  for (const u of [OLD, NEW]) {
+    console.log(`── 3. ${u} 首次对话（${u === OLD ? "预置热 pod" : "按需开通"}）──`);
+    const c = await chatRound(u, `poweri-${u}`);
+    sid1[u] = c.sid;
+    ok(`${u} 首次对话成功且有回答`, c.status === 200 && c.msgs >= 2 && c.answer.length > 0, `「${c.answer.slice(0, 10)}…」`);
+    ok(`${u} worker 就绪（replicas 1）`, await waitReplicas(`worker-${u}`, 1, 10, 2000), `replicas=${deployReplicas(`worker-${u}`)}`);
+  }
 
-  // 3. 新用户首次接入（按需开通，"开"）
-  console.log(`── 3. ${NEW} 首次对话（按需开通）──`);
-  const c1 = await chatRound(NEW, `poweri-${NEW}`);
-  ok(`${NEW} 首次对话成功且有回答`, c1.status === 200 && c1.msgs >= 2 && c1.answer.length > 0, `「${c1.answer.slice(0, 10)}…」`);
-  ok(`${NEW} worker 自动开通且 Ready`, await waitReplicas(`worker-${NEW}`, 1, 10, 2000), `replicas=${deployReplicas(`worker-${NEW}`)}`);
+  // 4. 空闲超时 → 所有用户统一缩容到 0（PVC 保留，数据不丢）
+  console.log(`── 4. 空闲 ${IDLE_MIN}min 后统一缩容 ──`);
+  for (const u of [OLD, NEW]) {
+    ok(`${u} worker 空闲后缩容到 0`, await waitReplicas(`worker-${u}`, 0, 45, 5000), `replicas=${deployReplicas(`worker-${u}`)}`);
+    ok(`${u} 的 PVC 保留（数据不随缩容删除）`, (() => { try { return kubectl(["get", "pvc", `${u}-pvc`, "-n", NS]).length > 0; } catch { return false; } })());
+  }
 
-  // 4. 空闲超时 → 缩容到 0（PVC 保留）
-  console.log(`── 4. 空闲 ${IDLE_MIN}min 后缩容 ──`);
-  ok(`${NEW} worker 空闲后缩容到 0`, await waitReplicas(`worker-${NEW}`, 0, 45, 5000), `replicas=${deployReplicas(`worker-${NEW}`)}`);
-  ok(`${NEW} 的 PVC 保留（数据不随缩容删除）`, (() => { try { return kubectl(["get", "pvc", `${NEW}-pvc`, "-n", NS]).length > 0; } catch { return false; } })());
-  ok(`${OLD} 静态 worker 常驻（未被缩容）`, deployReplicas(`worker-${OLD}`) >= 1, `replicas=${deployReplicas(`worker-${OLD}`)}`);
-
-  // 5. 再次对话 → 自动拉起（"关"后能再"开"，数据不丢）
-  console.log(`── 5. ${NEW} 再次对话（自动拉起）──`);
-  const c2 = await chatRound(NEW, `poweri-${NEW}`);
-  ok(`${NEW} worker 自动拉起且 Ready`, await waitReplicas(`worker-${NEW}`, 1, 10, 2000), `replicas=${deployReplicas(`worker-${NEW}`)}`);
-  ok(`${NEW} 再次对话成功`, c2.status === 200 && c2.msgs >= 2 && c2.answer.length > 0, `「${c2.answer.slice(0, 10)}…」`);
-  const sessionsNow = (() => {
-    try { return kubectl(["exec", `deploy/worker-${NEW}`, "-n", NS, "--", "ls", "/home/piuser/.pi/agent/sessions"]).split("\n").map((s) => s.replace(/\.jsonl$/, "")).filter(Boolean); } catch { return []; }
-  })();
-  ok(`缩容前会话仍在 PVC 上（数据未丢）`, sessionsNow.includes(c1.sid), `${c1.sid} → ${sessionsNow.join(",") || "无"}`);
+  // 5. 再次对话 → 自动拉起（"关"后能再"开"），数据不丢
+  console.log(`── 5. 再次对话（自动拉起）──`);
+  for (const u of [OLD, NEW]) {
+    const c = await chatRound(u, `poweri-${u}`);
+    ok(`${u} worker 自动拉起且 Ready`, await waitReplicas(`worker-${u}`, 1, 10, 2000), `replicas=${deployReplicas(`worker-${u}`)}`);
+    ok(`${u} 再次对话成功`, c.status === 200 && c.msgs >= 2 && c.answer.length > 0, `「${c.answer.slice(0, 10)}…」`);
+    const sessionsNow = (() => {
+      try { return kubectl(["exec", `deploy/worker-${u}`, "-n", NS, "--", "ls", "/home/piuser/.pi/agent/sessions"]).split("\n").map((s) => s.replace(/\.jsonl$/, "")).filter(Boolean); } catch { return []; }
+    })();
+    ok(`${u} 缩容前会话仍在 PVC 上（数据未丢）`, sessionsNow.includes(sid1[u]), `${sid1[u]} → ${sessionsNow.join(",") || "无"}`);
+  }
 
   console.log(`\n结果: ${passed} 通过 / ${failed} 失败`);
 } finally {
-  process.exit(failed ? 1 : 0);
+  process.exitCode = failed ? 1 : 0; // 自然退出：flush 缓冲 + 不吞 try 内异常（异常会覆盖退出码并打印堆栈）
 }
