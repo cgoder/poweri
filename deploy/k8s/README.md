@@ -8,7 +8,7 @@
 |---|---|---|---|
 | PowerI（Worker） | 本仓库 `worker/` | `poweri-worker:local`（worker/docker/Dockerfile.poweri） | per-user 模板在 `scripts/gen-k8s.mjs`（参数化：用户/端口/token） |
 | poweri-gateway | monorepo `gateway/`（ticket 02 并入） | `poweri-gateway:local`（gateway/Dockerfile.gateway） | `gateway/deploy/k8s/gateway.yaml`（Deployment+PVC+Service 31080，${K8S_USERS} 占位符） |
-| PowerI-Web | /Users/tianzhao/code/leoao/poweri-web（ticket 03 引入 monorepo） | `poweri-web:local`（Dockerfile） | `deploy/k8s/poweri-web.yaml`（Deployment+Service 30341，${WEB_USERS}/${GW_USERS} 占位符） |
+| PowerI-Web | monorepo `web/`（ticket 03 已引入，v0.8.8 纯净基底）；UI 网关模式适配与 manifest 归位待 ticket 04–06（当前 `--ui` 聚合仍引用旧仓库 /Users/tianzhao/code/leoao/poweri-web） | `poweri-web:local`（Dockerfile） | `deploy/k8s/poweri-web.yaml`（Deployment+Service 30341，${WEB_USERS}/${GW_USERS} 占位符） |
 
 聚合一键部署：`POWERI_AI_API_KEY=<key> node scripts/gen-k8s.mjs alice,bob --ui`（注入占位符 + 生成 Secret + apply）。单仓库独立部署见各仓库 README 的 K8s 章节。
 

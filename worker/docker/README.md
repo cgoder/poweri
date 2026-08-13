@@ -6,7 +6,7 @@
 |---|---|---|
 | `Dockerfile.poweri` | `poweri-worker:local` | Worker 沙箱（bridge + pi@0.83.0 + 扩展 + skills）——PowerI 本体 |
 
-> PowerI-Web（UI 壳）镜像在独立仓库 `poweri-web`（/Users/tianzhao/code/leoao/poweri-web）维护，不在本目录。
+> PowerI-Web（UI 壳）源码已随 ticket 03 引入 monorepo `web/`（上游 agegr/pi-web v0.8.8 纯净基底，零定制）；UI 镜像与网关模式适配待 ticket 04–06 重放归位，当前仍由旧仓库 `poweri-web`（/Users/tianzhao/code/leoao/poweri-web）维护。
 
 ## Worker 镜像（Dockerfile.poweri）
 
