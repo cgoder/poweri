@@ -49,8 +49,7 @@ function start(cmd, args, cwd, env) {
     if (code !== null && code !== 0 && !shuttingDown) {
       console.error(`  ✗ 子进程退出（${cmd} ${args.slice(0, 3).join(" ")}… code=${code}）`);
       console.error(log.split("\n").slice(-12).map((l) => `    | ${l}`).join("\n"));
-      cleanup();
-      process.exit(1);
+      cleanup().finally(() => process.exit(1));
     }
   });
   return { p };
@@ -69,15 +68,20 @@ async function waitFor(url, what, opts = {}) {
   throw new Error(`等待 ${what} 超时（${url}）：${last}`);
 }
 let shuttingDown = false;
-function cleanup() {
+async function cleanup() {
   shuttingDown = true;
   for (const c of children) {
-    try { process.kill(-c.p.pid, "SIGKILL"); } catch { try { c.p.kill("SIGKILL"); } catch {} }
+    // children 存 ChildProcess 本身（c.pid/c.kill）；此前误写 c.p.* 致 TypeError 被吞、清理从未生效
+    try { process.kill(-c.pid, "SIGKILL"); } catch {}
+    // 防御：轮询确认死亡（group kill 竞态时补单杀），避免孙进程/僵尸占端口
+    for (let i = 0; i < 10; i++) {
+      try { process.kill(c.pid, 0); } catch { break; } // 已死
+      await sleep(200);
+    }
+    try { process.kill(c.pid, "SIGKILL"); } catch {}
   }
-  // 容器 --rm 在进程退出后自清；sleep 等待自清，残留才兜底 rm（幂等，会顺带清掉其它遗留 poweri-* 容器）
-  setTimeout(() => {
-    try { execFileSync("docker", ["rm", "-f", ...execFileSync("docker", ["ps", "-aq", "--filter", "name=poweri-"], { encoding: "utf8" }).trim().split("\n").filter(Boolean)], { stdio: "ignore" }); } catch {}
-  }, 3000);
+  await sleep(2500); // --rm 容器随 gateway/bridge ws 断开自清
+  try { execFileSync("docker", ["rm", "-f", ...execFileSync("docker", ["ps", "-aq", "--filter", "name=poweri-"], { encoding: "utf8" }).trim().split("\n").filter(Boolean)], { stdio: "ignore" }); } catch {}
 }
 
 // ── SSE 流收集（读 data: 行；onFirst 在收到首个事件时回调，作订阅握手）──
@@ -198,11 +202,11 @@ async function main() {
     console.log("说明：本脚本为真实链路回归基准（每次迁移/升级后运行）；浏览器人工确认步骤见 docs/local-e2e-smoke.md");
     exitCode = fail === 0 ? 0 : 1;
   } finally {
-    // process.exit 会跳过 finally（Node 陷阱），故退出码先赋值、退出在函数返回后统一执行
-    cleanup();
+    // process.exit 会跳过 finally 中的异步（Node 陷阱），故 cleanup 在退出前 await 完成
+    await cleanup();
     console.log("  清理完成（进程 + 容器）");
   }
   process.exit(exitCode);
 }
 
-main().catch((e) => { console.error(`✗ 冒烟异常：${e.message}`); cleanup(); process.exit(1); });
+main().catch(async (e) => { console.error(`✗ 冒烟异常：${e.message}`); await cleanup(); process.exit(1); });
