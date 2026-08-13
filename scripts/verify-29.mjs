@@ -27,7 +27,8 @@ async function listSessions(token = TOKEN) {
   return (r.body?.sessions ?? []);
 }
 async function chatOne() {
-  // 新会话对话：读到 ready 帧拿到 sessionId 即断开（worker 继续处理，不等待流结束）
+  // 新会话对话：读到 ready 帧拿 sessionId，继续读完整个流（等回复完成）再断开；
+  // 不能中途 abort——删除的是"完成态"会话，否则 pi 后续写入会重建已删文件（verify-29 实测竞态）
   const controller = new AbortController();
   let sid = "";
   try {
@@ -41,15 +42,18 @@ async function chatOne() {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buf = "";
-      while (!sid) {
+      while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         buf += decoder.decode(value, { stream: true });
-        const m = /event: ready\s+data: \{"sessionId":"(msb[^"]+)"/.exec(buf);
-        if (m) sid = m[1];
+        if (!sid) {
+          const m = /event: ready\s+data: \{"sessionId":"([0-9a-z]{6,9}-[0-9a-f]{8})"/.exec(buf);
+          if (m) sid = m[1];
+        }
+        if (/event: turn_end|event: agent_end/.test(buf)) break;
       }
     }
-  } catch { /* abort 后忽略 */ }
+  } catch { /* 完成后忽略 */ }
   controller.abort();
   // worker 落盘有滞后（ticket 24 已知）：轮询列表等会话文件出现后再返回，否则立即 PATCH 会 404
   if (sid) {

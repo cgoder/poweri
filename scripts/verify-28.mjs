@@ -37,7 +37,7 @@ async function chatRound(u, p) {
   const nw = await post("/api/agent/new", { type: "prompt", message: "回复一个字：好" }, { Authorization: auth(u, p) });
   let sid = "";
   try { sid = JSON.parse(nw.body).sessionId ?? ""; } catch { }
-  if (nw.status !== 200 || !sid.startsWith("msb")) return { status: nw.status, msgs: 0, answer: "" };
+  if (nw.status !== 200 || !/^[0-9a-z]{6,9}-[0-9a-f]{8}$/.test(sid)) return { status: nw.status, msgs: 0, answer: "" };
   let msgs = 0, answer = "";
   for (let i = 0; i < 24; i++) {
     await sleep(5000);

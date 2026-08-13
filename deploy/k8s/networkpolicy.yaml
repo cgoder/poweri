@@ -16,10 +16,10 @@ spec:
   policyTypes:
     - Egress
   egress:
-    # 模型 API 白名单（llms.litta.cn 当前解析 IP；生产按真实网关替换）
+    # 模型 API 白名单（llms.litta.cn 内网 IP；生产按真实网关替换）
     - to:
         - ipBlock:
-            cidr: 198.18.2.74/32
+            cidr: 172.16.123.89/32
       ports:
         - protocol: TCP
           port: 443

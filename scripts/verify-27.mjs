@@ -33,10 +33,11 @@ async function post(path, body, headers = {}) {
 
 try {
   // 0. 旧形态废弃警告（先跑：gen-k8s 会重建 Secret，需在 --ui 部署前验证，避免丢 UI 键）
+  // 注：旧形态镜像（poweri-piweb*:local）缺失时 rollout 等待会超时，仅验证警告文本故 25s 超时杀 + 吞退出码
   console.log("── 0. 旧形态废弃 ──");
-  const deprecated = execFileSync("bash", ["-c", `node scripts/gen-k8s.mjs ${users.join(",")} --piweb 2>&1`], { encoding: "utf8" });
+  const deprecated = execFileSync("bash", ["-c", `timeout 25 node scripts/gen-k8s.mjs ${users.join(",")} --piweb 2>&1 || true`], { encoding: "utf8" });
   ok("--piweb 打印废弃警告", deprecated.includes("已废弃"));
-  const deprecated2 = execFileSync("bash", ["-c", `node scripts/gen-k8s.mjs ${users.join(",")} --piweb2 2>&1`], { encoding: "utf8" });
+  const deprecated2 = execFileSync("bash", ["-c", `timeout 25 node scripts/gen-k8s.mjs ${users.join(",")} --piweb2 2>&1 || true`], { encoding: "utf8" });
   ok("--piweb2 打印废弃警告", deprecated2.includes("已废弃"));
 
   // 1. 部署（含 --ui）
@@ -71,7 +72,7 @@ try {
   const nw = await post("/api/agent/new", { type: "prompt", message: "回复一个字：好" }, { Authorization: auth });
   let sid = "";
   try { sid = JSON.parse(nw.body).sessionId ?? ""; } catch { }
-  ok("POST /api/agent/new 返回会话 id", nw.status === 200 && sid.startsWith("msb"), sid ? `HTTP ${nw.status} sid=${sid}` : `HTTP ${nw.status}`);
+  ok("POST /api/agent/new 返回会话 id", nw.status === 200 && /^[0-9a-z]{6,9}-[0-9a-f]{8}$/.test(sid), sid ? `HTTP ${nw.status} sid=${sid}` : `HTTP ${nw.status}`);
   let msgs = 0, answer = "";
   for (let i = 0; i < 24; i++) {
     await sleep(5000);

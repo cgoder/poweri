@@ -16,9 +16,16 @@ if (PIWEB) console.warn("⚠ --piweb 已废弃（ticket 27）：上游 @agegr/pi
 if (PIWEB2) console.warn("⚠ --piweb2 已废弃（ticket 27）：jmfederico 试点（ticket 22）已收口；仅保留可回滚");
 const NODE_PORT_BASE = 30081;
 const NS = "poweri";
-const IMAGE = process.env.POWERI_POD_IMAGE ?? "poweri-worker:local";
+const IMAGE = process.env.POWERI_POD_IMAGE ?? "poweri-worker:local"; // worker 镜像（gen-k8s 模板 + 网关按需开通共用）
 const MODEL = process.env.POWERI_AI_MODEL ?? "agent";
 const GW_USERS = process.env.POWERI_GATEWAY_USERS ?? "alice:token-a;bob:token-b";
+const GATEWAY_IMAGE = process.env.POWERI_GATEWAY_IMAGE ?? "poweri-gateway:local";
+const WEB_IMAGE = process.env.POWERI_WEB_IMAGE ?? "poweri-web:local";
+// ECS 类环境公网域名不可解析：POWERI_LLMS_EXTRA_HOSTS="<ip>:<host>" 时给 worker pod 注入 hostAliases（如 172.16.123.89:llms.litta.cn）
+const [aliasIp, aliasHost] = (process.env.POWERI_LLMS_EXTRA_HOSTS ?? "").split(":");
+const HOST_ALIASES = aliasIp && aliasHost ? `      hostAliases:
+        - { ip: "${aliasIp}", hostnames: ["${aliasHost}"] }
+` : "";
 const CONFIG_SRC = process.env.POWERI_PI_CONFIG_DIR || path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "deploy", "config", "pi");
 // 三模块独立仓库路径（gateway/Web 的 K8s manifest 归各自仓库自描述，控制面聚合引用）
 const GW_DIR = process.env.POWERI_GATEWAY_DIR || "/Users/tianzhao/code/leoao/poweri-gateway";
@@ -91,7 +98,9 @@ spec:
     spec:
       initContainers:
         - name: seed
-          image: busybox
+          image: ${IMAGE}
+          imagePullPolicy: IfNotPresent
+          securityContext: { runAsUser: 0 }
           command: ["sh", "-c", "mkdir -p /agent/sessions && cp /config/models.json /config/settings.json /agent/ || true; chown -R 1000:1000 /agent /workspace || true"]
           volumeMounts:
             - { name: pi, mountPath: /agent, subPath: pi-agent }
@@ -118,7 +127,7 @@ spec:
           volumeMounts:
             - { name: pi, mountPath: /home/piuser/.pi/agent, subPath: pi-agent }
             - { name: pi, mountPath: /workspace, subPath: workspace }
-      volumes:
+${HOST_ALIASES}      volumes:
         - name: pi
           persistentVolumeClaim: { claimName: ${u}-pvc }
         - name: config
@@ -139,7 +148,7 @@ console.log(`✓ 资源已应用：${users.map((u) => `worker-${u} (nodePort ${N
 // ── 3. gateway：manifest 归独立仓库（poweri-gateway/deploy/k8s/gateway.yaml），此处聚合引用 ──
 // 数据挂独立 PVC（meta/计量不丢）；多副本水平扩展需共享元数据存储（生产：数据库，store.mjs 注释）
 const k8sUsers = users.map((u) => `${u}:worker-${u}.${NS}.svc.cluster.local:8081`).join(";");
-applyManifest(path.join(GW_DIR, "deploy", "k8s", "gateway.yaml"), { K8S_USERS: k8sUsers });
+applyManifest(path.join(GW_DIR, "deploy", "k8s", "gateway.yaml"), { K8S_USERS: k8sUsers, GATEWAY_IMAGE, WORKER_IMAGE: IMAGE });
 console.log(`✓ gateway 已部署（NodePort 31080，manifest 来自 poweri-gateway 仓库 ${path.join(GW_DIR, "deploy", "k8s", "gateway.yaml")}）`);
 
 // ── 2c. PowerI-Web UI（ticket 27：单一网关模式壳，指向网关 Service；无 PVC——数据全在 worker 侧）──
@@ -147,7 +156,7 @@ console.log(`✓ gateway 已部署（NodePort 31080，manifest 来自 poweri-gat
 if (UI) {
   // ticket 28：每用户账号表（POWERI_WEB_USERS，默认 poweri-<user>）+ 网关用户表（token 解析）
   const webUsers = process.env.POWERI_WEB_USERS ?? users.map((u) => `${u}:poweri-${u}`).join(";");
-  applyManifest(path.join(WEB_DIR, "deploy", "k8s", "poweri-web.yaml"), { WEB_USERS: webUsers, GW_USERS });
+  applyManifest(path.join(WEB_DIR, "deploy", "k8s", "poweri-web.yaml"), { WEB_USERS: webUsers, GW_USERS, WEB_IMAGE });
   console.log(`✓ PowerI-Web UI 已部署（NodePort 30341，账号 ${webUsers}，manifest 来自 poweri-web 仓库）`);
 }
 
