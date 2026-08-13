@@ -92,8 +92,18 @@ node scripts/verify-21.mjs alice,bob
 
 ## 6.5 生产收口实况（ticket 30，K8s 已验证）
 
+- **新用户按需开通（ticket 31）**：网关 k8s provider 对不在静态表（POWERI_K8S_USERS）的新用户，经 in-cluster SA（Role `poweri-gateway`，gateway.yaml 自带）调 K8s API 自动创建 PVC+Deployment+ClusterIP Service（模板与 gen-k8s 同构）。验证：`node scripts/verify-31.mjs alice,carol`（仅预置 alice；carol 首次 Web 接入 → worker-carol 自动创建 + 会话落自己 PVC + 与 alice 零重叠 + 不同 Pod，10/10）。
+
+- **所有用户空闲缩容（ticket 32，统一版）**：预置与按需用户行为一致——任何 worker 空闲超过
+  `POWERI_WORKER_IDLE_MINUTES`（默认 30，gen-k8s 注入；`node scripts/gen-k8s.mjs ... POWERI_WORKER_IDLE_MINUTES=1`
+- **资源限额**：worker（requests 250m/256Mi，limits 1/512Mi）与 gateway（100m/128Mi → 1/512Mi）已入 gen-k8s（此前缺失）。
+  30-90s）。验证：`node scripts/verify-32.mjs alice,carol`（两用户各自 开通/预置→空闲缩容→拉起→数据不丢，10/10）。
+  `kubectl rollout restart deploy/gateway` 后，重启前已缩容/开通的 worker 会在下次请求按需恢复。
+
 - **资源限额**：worker（requests 250m/256Mi，limits 1/512Mi）与 gateway（100m/128Mi → 1/512Mi）已入 gen-k8s（此前缺失——HPA CPU 利用率依赖 requests 字段）。
-- **HPA K8s 实跑**：`kubectl apply -f deploy/k8s/hpa.yaml`（worker-alice min1/max3，CPU 70%）；metrics-server 已装（OrbStack k3s 需 `--kubelet-insecure-tls`，镜像 registry.k8s.io 换阿里云源）；压测 3 路并行长对话 → **副本 1→2 自动扩容**；缩容受 300s 稳定窗口约束。
+- **无 HPA（ticket 32 移除）**：CPU-only HPA 不支持 `minReplicas: 0`（需 Object/External 指标才允许缩到 0），
+  与"所有用户统一缩到 0"互斥；负载扩容属优化，需要指标源后另行决策。metrics-server 不再需要
+  （`scripts/install-metrics-server.mjs` 保留备用）。
 - **NetworkPolicy**：`deploy/k8s/networkpolicy.yaml` 已应用（默认拒绝出站 + DNS + 模型 API 198.18.2.74/32 白名单）。**注意：本机 OrbStack k3s 无 policy 型 CNI（无 flannel/cilium pod，k3s 内嵌 CNI），策略只落不实施；enforcement 需 Cilium/Calico，属生产集群决策。** 生产环境模型 API 出口需替换 CIDR（或集群内自建网关走 namespaceSelector）。
 
 **待用户决策**（ticket 30 未决项）：镜像仓库地址/凭据 + CI/CD 流水线（GitLab）；Ingress 域名 + TLS；网关多副本共享元数据存储（现 store.mjs 文件存储，单副本）。
