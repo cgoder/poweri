@@ -148,7 +148,7 @@ console.log(`✓ 资源已应用：${users.map((u) => `worker-${u} (nodePort ${N
 // ── 3. gateway：manifest 归独立仓库（poweri-gateway/deploy/k8s/gateway.yaml），此处聚合引用 ──
 // 数据挂独立 PVC（meta/计量不丢）；多副本水平扩展需共享元数据存储（生产：数据库，store.mjs 注释）
 const k8sUsers = users.map((u) => `${u}:worker-${u}.${NS}.svc.cluster.local:8081`).join(";");
-applyManifest(path.join(GW_DIR, "deploy", "k8s", "gateway.yaml"), { K8S_USERS: k8sUsers, GATEWAY_IMAGE, WORKER_IMAGE: IMAGE, IDLE_MINUTES: process.env.POWERI_WORKER_IDLE_MINUTES ?? "30" });
+applyManifest(path.join(GW_DIR, "deploy", "k8s", "gateway.yaml"), { K8S_USERS: k8sUsers, GATEWAY_IMAGE, WORKER_IMAGE: IMAGE, IDLE_MINUTES: process.env.POWERI_WORKER_IDLE_MINUTES ?? "30", LLMS_EXTRA_HOSTS: process.env.POWERI_LLMS_EXTRA_HOSTS ?? "" });
 console.log(`✓ gateway 已部署（NodePort 31080，manifest 来自 poweri-gateway 仓库 ${path.join(GW_DIR, "deploy", "k8s", "gateway.yaml")}；缩容空闲阈值 ${process.env.POWERI_WORKER_IDLE_MINUTES ?? "30"}min）`);
 
 // ── 2c. PowerI-Web UI（ticket 27：单一网关模式壳，指向网关 Service；无 PVC——数据全在 worker 侧）──
