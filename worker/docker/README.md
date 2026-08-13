@@ -1,6 +1,6 @@
-# 容器镜像（PowerI Worker + Gateway）
+# Worker 沙箱镜像（worker/docker）
 
-本目录维护两个生产镜像的 Dockerfile（ticket 01 起演进，ticket 30 后仅剩这两个——piweb/piweb2 历史形态已于 2026-08 清理）：
+本目录维护 Worker 沙箱镜像的 Dockerfile 与文档（ticket 01 monorepo 起随 worker 沙箱归位 `worker/`；gateway 镜像在网关仓库维护，ticket 02 并入 monorepo 后更新）。
 
 | 文件 | 镜像 | 归属 |
 |---|---|---|
@@ -16,7 +16,7 @@ Worker Pod 的基础镜像。基于官方 `docs/containerization.md` 的 "Plain 
 - **锁版本**：`ARG PI_VERSION` 固定 pi 版本，保证可复现构建（官方模板不锁版本，此处为生产实践）
 - **非 root**：以 `piuser` 运行，缩小被注入工具的影响面
 - **离线**：`PI_OFFLINE=1` 关闭启动外呼（版本检查/telemetry/pi.dev）
-- **内嵌**：`bridge/`（桥，与 gateway 通信）+ `gateway/session-parse.mjs` 契约副本 + `/poweri/extensions/` 用户记忆扩展
+- **内嵌**：`worker/bridge/`（桥，与 gateway 通信）+ 会话 DTO 契约副本（`session-parse.mjs`，源在 gateway 侧，副本同步至 `worker/bridge/session-parse.mjs`）+ `/poweri/extensions/` 用户记忆扩展
 
 ```bash
 node scripts/build-image.mjs            # → poweri-worker:local（512MB，可传 tag 与 pi 版本参数）
@@ -44,5 +44,5 @@ cd /Users/tianzhao/code/leoao/poweri-gateway && node scripts/build-gateway.mjs  
 
 - 多阶段：依赖层 `npm install --omit=dev`（锁 ws@^8.18），运行时层只拷 `*.mjs`（不含 test/node_modules）
 - 非 root（内置 `node` 用户 uid 1000）；数据目录默认 `cwd/data`，镜像内预建并授权
-- 契约：`session-parse.mjs`（会话 DTO）以副本形式同步到本仓库 `bridge/session-parse.mjs`（worker 镜像内）
+- 契约：`session-parse.mjs`（会话 DTO）以副本形式同步到本仓库 `worker/bridge/session-parse.mjs`（worker 镜像内）
 - 部署：K8s Deployment + PVC + NodePort（`scripts/gen-k8s.mjs`，见 `deploy/k8s/README.md`）；密钥经 Secret 注入（`POWERI_GATEWAY_USERS`、worker 侧 `POWERI_AI_API_KEY`）

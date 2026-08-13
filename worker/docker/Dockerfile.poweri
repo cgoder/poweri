@@ -1,6 +1,7 @@
 # PowerI Worker 沙箱镜像：单 Node 运行时
 # 容器内只用 Node：pi 本身是 Node，后续 skills/扩展也在 Node 里跑；桥也用 Node（唯一依赖 ws）。
-# 构建（上下文=仓库根）：docker build -f deploy/docker/Dockerfile.pi -t poweri-worker:local .
+# 构建（上下文=worker/，模块自包含）：docker build -f worker/docker/Dockerfile.poweri -t poweri-worker:local worker/
+# 或聚合脚本：node scripts/build-image.mjs（ticket 01 monorepo：Dockerfile 随 worker 沙箱归位 worker/docker/）
 
 FROM node:24-bookworm-slim
 

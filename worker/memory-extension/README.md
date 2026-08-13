@@ -14,7 +14,7 @@ pi 扩展：在工作区（该用户 PVC）维护 User Memory 文件，随 agent
 - **写**：agent 回合内调用 `remember(section, fact, replace?)` 工具 → 增量写、幂等去重、事实带日期、原子写回（tmp+rename）——**零额外模型调用**（不做回合后 LLM 摘要）。`replace=true` 覆盖旧行时，旧行自动记入 `recovery/<ts>-<section>.json`
 - **恢复**：`memory_restore` 工具按 id（或最近一条）恢复被覆盖的行并移除记录（防误覆盖）
 - **读（注入）**：`before_agent_start` 修改 `event.systemPrompt` 追加记忆块（生态标准路径，T18 自 `before_provider_request` 迁入；每 agent 回合触发一次，无累积）。预算内全文 / 超预算保留画像+最近；幂等 MARKER 防重复加载。⚠️ 实证：`context` 事件改消息不进入最终负载——故早期版本用 `before_provider_request` 追加首位消息，T18 统一迁到 `before_agent_start`
-- **存量初始化**：`scripts/init-memory.mjs --legacy <json> --data-dir <dir>`，幂等（memory.md 已存在跳过），首次运行空记忆兜底
+- **存量初始化**：`node worker/scripts/init-memory.mjs --legacy <json> --data-dir <dir>`（monorepo 起归位 worker/scripts/），幂等（memory.md 已存在跳过），首次运行空记忆兜底
 
 ## 环境变量
 
@@ -26,4 +26,4 @@ pi 扩展：在工作区（该用户 PVC）维护 User Memory 文件，随 agent
 
 ## 验证
 
-`node scripts/verify-08.mjs`（Part A 容器级 / Part B 全链路隔离+零成本 / Part C 存量初始化幂等）
+`node --test worker/memory-extension/test/`（单测，memory-core 纯逻辑）

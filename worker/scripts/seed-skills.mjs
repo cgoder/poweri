@@ -1,5 +1,5 @@
 // 把宿主业务 skill 播种进各用户 PVC 的 pi agent 目录（ticket 21）
-// 用法: node scripts/seed-skills.mjs [alice,bob] [skill1,skill2,...]
+// 用法: node worker/scripts/seed-skills.mjs [alice,bob] [skill1,skill2,...]
 // 默认播种集：轻量自包含业务技能（纯 SKILL.md + 小脚本，无外部凭据）；
 // 重技能（data-analyzer 2925 文件 / aliyun-cost / litta-* 等）同样方式播种，另需数据源与凭据。
 // 来源: ~/.agents/skills/<name> 与 ~/.pi/agent/git/github.com/DietrichGebert/ponytail/skills/<name>

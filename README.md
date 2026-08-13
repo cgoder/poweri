@@ -6,24 +6,45 @@
 
 ## 文档索引
 
-- **Spec**：`.scratch/pi-agent-platform/spec.md`（38 条用户故事，测试/实现决策）
-- **架构决策**：`docs/adr/`（0001~0008：per-user PVC、stdio↔WS 桥、无状态网关、温池、会话串行、计量、账单、User Memory）
+- **Spec**：`.scratch/poweri-monorepo/spec.md`（monorepo + subtree 迁移，20 条用户故事）
+- **架构决策**：`docs/adr/`（0001~0010：per-user PVC、stdio↔WS 桥、无状态网关、温池、会话串行、计量、账单、User Memory、成熟 OSS 优先、monorepo + subtree）
 - **术语表**：`CONTEXT.md`
-- **调研**：`docs/research/`（容器部署 / 容器 PoC / 记忆生态包 / pi-web 视觉多用户验证）
+- **调研**：`docs/research/`（容器部署 / 容器 PoC / 记忆生态包 / pi-web 深度 / pi-web 视觉多用户验证）
 - **设计**：`docs/design/08-user-memory.md`
-- **执行 ticket**：`.scratch/pi-agent-platform/issues/`（主线 01–13 + K8s 验证 16 + 可视化验证 15 + 记忆包决策 14 + 记忆移植 18 + 生产化收口 19 已完成；17 pi-web 网关客户端评估已定案不做）
+- **执行 ticket**：`.scratch/poweri-monorepo/issues/`（01–09：monorepo 骨架 → gateway subtree 并入 → web subtree 引入 → 适配层重放 → local 全链路验证 → gitlab 迁移）
+  - 平台主线历史（已收口）：`.scratch/pi-agent-platform/issues/`（01–32）
 
-## 仓库结构
+## 仓库结构（monorepo，ADR-0010）
 
 ```
+worker/            Worker 沙箱模块（自包含）：
+                   bridge/          每个 Worker Pod 内的 stdio↔WebSocket 桥（每连接一个 pi --mode rpc 子进程）
+                   memory-extension/ User Memory pi 扩展（remember 工具 + 预算注入，随执行循环读写）
+                   docker/           Worker 镜像构建（Dockerfile.poweri + 大小/资源实测文档）
+                   scripts/          Worker 初始化脚本（init-memory 存量记忆导入、seed-skills 播种）
 gateway/           无状态网关：认证/路由/会话续接/并发串行/流式转发(SSE+WS)/计量/计价/账单/日志
-bridge/            每个 Worker Pod 内的 stdio↔WebSocket 桥（每连接一个 pi --mode rpc 子进程）
-memory-extension/  User Memory pi 扩展（remember 工具 + 预算注入，随执行循环读写）
-deploy/            docker 镜像（poweri-worker + poweri-gateway）+ k8s manifests（每用户 PVC/Deployment/NodePort、NetworkPolicy、gateway 部署）+ config/pi 平台配置目录
-scripts/           构建(build-image/build-gateway)/配置生成(gen-pi-config)/K8s 部署(gen-k8s)/metrics-server 安装(install-metrics-server)/验证(verify-05~12、verify-19、verify-23~31、verify-k8s)
+                   —— ticket 02 经 git subtree add 并入，当前未就位
+web/               PowerI-Web（网关模式 UI 壳）
+                   —— ticket 03 经 git subtree 自上游 agegr/pi-web 引入，当前未就位（待 subtree 引入）
+deploy/            平台控制面部署物：k8s/（每用户 PVC/Deployment/NodePort、NetworkPolicy、gateway 部署）+ config/（平台 pi 配置，gen-pi-config 输出）
+scripts/           根级聚合脚本：构建（build-image → worker/docker/）、配置生成（gen-pi-config）、
+                   K8s 部署（gen-k8s）、metrics-server 安装、验证（verify-19/21~32）
 docs/              ADR / design / research / agents
+CONTEXT.md         平台术语表
 data/              PoC 数据目录（每用户 PVC 占位，已 gitignore）
 ```
+
+### 模块边界判定（ticket 01）
+
+判定原则：**文件运行在 worker 沙箱内、或其产物被 worker 沙箱独占消费 → `worker/`；运行在平台控制面且被多模块消费 → 留根。**
+
+| 判定 | 文件 | 理由 |
+|---|---|---|
+| 进 `worker/` | `bridge/`、`memory-extension/` | Worker 镜像内运行（Dockerfile COPY 进镜像） |
+| 进 `worker/` | `docker/`（原 `deploy/docker/`） | worker 镜像构建物，Dockerfile 与桥/扩展强耦合，随模块自包含 |
+| 进 `worker/` | `scripts/init-memory.mjs`、`scripts/seed-skills.mjs` | worker 初始化脚本：初始化 User Memory / 播种 skills，产物仅 worker 沙箱消费 |
+| 留根 | `deploy/config/` | 平台 pi 配置（gen-pi-config 输出），gateway seedUser 也消费 → 平台级 |
+| 留根 | `deploy/k8s/`、`scripts/` 其余、`docs/`、`CONTEXT.md` | 部署编排、验证脚本、平台文档 |
 
 ## 本地验证（macOS + OrbStack）
 
@@ -32,26 +53,27 @@ data/              PoC 数据目录（每用户 PVC 占位，已 gitignore）
 ```bash
 # 1. 配置：cp env.example .env 填 AI 网关变量 → 生成 pi 配置（到项目 deploy/config/pi，不污染宿主 ~/.pi/agent）
 bun run gen:pi-config          # 渲染 deploy/config/pi/models.json + settings.json
-# 2. 镜像：构建锁版本 worker 镜像（pi@0.83.0，非 root，512MB 官方形态）
+# 2. 镜像：构建锁版本 worker 镜像（pi@0.83.0，非 root，512MB 官方形态；Dockerfile 在 worker/docker/）
 node scripts/build-image.mjs   # → poweri-worker:local
-# 3. 验证：网关 fake/docker 层单元 + 集成验证
-node --test gateway/test/      # 网关单测
-node scripts/verify-06.mjs B   # docker + 真实 pi 全链路（流式/续接/隔离）
-# 4. K8s：每用户 PVC + worker Deployment + NodePort 真实部署验证
-node scripts/gen-k8s.mjs alice,bob   # ConfigMap 播种 + Secret 注入（密钥不进 ConfigMap）
-node scripts/verify-k8s.mjs          # 多用户隔离 / 会话落 PVC / Pod 重建续接
-# 5. 生产形态（ticket 19）：gateway 也进 K8s + 密钥 Secret 化全链路
-# gateway 独立仓库 /Users/tianzhao/code/leoao/poweri-gateway：node scripts/build-gateway.mjs → poweri-gateway:local
-node scripts/verify-19.mjs alice     # 部署 gateway+worker、ConfigMap 无明文密钥、真实模型回复
-# 6. PowerI-Web（产品 UI 壳，独立仓库）：浏览器 → 网关 → Worker → 真实 pi
-#    部署：node scripts/gen-k8s.mjs alice,bob --ui → http://127.0.0.1:30341（账号 alice/poweri-alice）
-node scripts/verify-27.mjs alice,bob # UI 部署形态 + 旧形态废弃
+# 3. worker 单测（memory-extension 纯逻辑）
+npm run test:unit              # node --test worker/memory-extension/test/
+# 4. 验证：K8s 全链路（fake/docker 层 + 真实模型）
+node scripts/verify-19.mjs alice     # gateway+worker 全 K8s、ConfigMap 无明文密钥、真实模型回复
+node scripts/verify-21.mjs alice,bob # skill 播种 + Worker 链路 skill 加载
+node scripts/verify-23.mjs          # 会话列表/历史 API
+node scripts/verify-24.mjs          # PowerI-Web 壳 → 网关 → worker 全链路（旧形态）
+node scripts/verify-26.mjs          # PowerI-Web 容器化验证（ticket 26）
+node scripts/verify-27.mjs alice,bob # PowerI-Web UI 部署形态 + 旧形态废弃
 node scripts/verify-28.mjs alice,bob # 每用户账号 → 网关 token 认证隔离
 node scripts/verify-29.mjs alice     # 会话改名/删除 + 用户侧计量
-# 6b. metrics-server（OrbStack k3s 必需：HPA CPU 指标依赖；reset/新机后务必先跑，否则 verify-30 失败）
+node scripts/verify-30.mjs alice     # 生产收口（资源限额/NetworkPolicy）
+node scripts/verify-31.mjs alice,carol # 新用户按需开通（仅预置 alice，carol 首次接入自动开 worker）
+node scripts/verify-32.mjs alice,carol # 空闲超时缩容（PVC 保留，数据不丢）
+# 5. worker 初始化脚本（worker/scripts/）
+node worker/scripts/seed-skills.mjs alice,bob            # 播种默认业务技能到各用户 PVC
+node worker/scripts/init-memory.mjs --legacy legacy.json # 存量用户数据导入 User Memory（幂等）
+# 6. metrics-server（OrbStack k3s 必需：HPA CPU 指标依赖；reset/新机后务必先跑）
 node scripts/install-metrics-server.mjs  # 幂等：阿里云镜像 + --kubelet-insecure-tls，见 OPERATIONS.md §6.5
-node scripts/verify-30.mjs alice     # 生产收口（资源限额/HPA/NetworkPolicy）
-node scripts/verify-31.mjs alice,carol # 新用户按需开通：仅预置 alice，carol 首次接入自动开 worker-carol + PVC，数据隔离（见下）
 ```
 
-Worker 镜像大小构成与运行资源实测见 `deploy/docker/README.md`；K8s 生产形态（HPA、NetworkPolicy、资源限额草案）见 `deploy/k8s/README.md`。
+Worker 镜像大小构成与运行资源实测见 `worker/docker/README.md`；K8s 生产形态（NetworkPolicy、资源限额、按需开通/空闲缩容）见 `deploy/k8s/README.md`。

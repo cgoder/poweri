@@ -1,6 +1,6 @@
 // ticket 21 验证：pi-web 实例（K8s）—— 认证 / skill 播种 / 进程内 pi 加载并执行业务 skill / 会话落 PVC
 // 以及 Worker 链路（网关→Worker→pi）的 skill 加载验证（产品路径，ticket 21 修订）
-// 用法: node scripts/verify-21.mjs [alice,bob]   （需先 gen-k8s --piweb + seed-skills）
+// 用法: node scripts/verify-21.mjs [alice,bob]   （需先 gen-k8s --piweb + worker/scripts/seed-skills.mjs）
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 

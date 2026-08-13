@@ -1,7 +1,7 @@
 # PowerI 运维操作手册（K8s）
 
 > 本手册覆盖：部署接线架构、业务 skill 的加载机制/播种/验证/新增，以及部署后业务使用场景的关键操作。
-> 相关：`scripts/gen-k8s.mjs`（部署）、`scripts/seed-skills.mjs`（skill 播种）、`scripts/verify-21.mjs`（skill 验证）。
+> 相关：`scripts/gen-k8s.mjs`（部署）、`worker/scripts/seed-skills.mjs`（skill 播种）、`scripts/verify-21.mjs`（skill 验证）。
 
 ## 0. 部署接线架构（先读，避免误用）
 
@@ -35,10 +35,10 @@ PowerI-Web 容器 ──SSE──> 网关 gateway ──WS──> worker-<user> 
 
 ```bash
 # 默认集：15 个轻量自包含技能（code-review/tdd/humanizer-zh/prototype/research/ponytail 全家桶等）
-node scripts/seed-skills.mjs alice,bob
+node worker/scripts/seed-skills.mjs alice,bob
 
 # 自定义集（指定 skill 名）
-node scripts/seed-skills.mjs alice,bob data-analyzer,aliyun-cost
+node worker/scripts/seed-skills.mjs alice,bob data-analyzer,aliyun-cost
 
 # 播种后 pi-web 需重启重扫（脚本自动执行）；Worker 无需
 ```
@@ -61,7 +61,7 @@ node scripts/verify-21.mjs alice,bob
 
 ## 4. 新增/自定义 skill
 
-1. 在宿主写好 `<name>/SKILL.md`（Agent Skills 标准），`node scripts/seed-skills.mjs alice,bob <name>` 播种。
+1. 在宿主写好 `<name>/SKILL.md`（Agent Skills 标准），`node worker/scripts/seed-skills.mjs alice,bob <name>` 播种。
 2. 或直接让 pi 在会话里创建 skill（pi 会写回 agent 目录，落盘即持久）——已有实例：`frontend-design`。
 3. 重技能（带数据源/凭据的领域技能）需配套数据采集 skill 与凭据注入，见 §2。
 
@@ -81,7 +81,7 @@ node scripts/verify-21.mjs alice,bob
 POWERI_AI_API_KEY=<key> node scripts/gen-k8s.mjs alice,bob --ui
 
 # skill 播种 / 验证
-node scripts/seed-skills.mjs alice,bob
+node worker/scripts/seed-skills.mjs alice,bob
 node scripts/verify-21.mjs alice,bob
 
 # 访问

@@ -53,8 +53,8 @@ node scripts/gen-k8s.mjs alice,bob --piweb   # 追加生成 piweb-<user> Deploym
 **业务 skill 播种**：pi-web 运行时从 agent 目录扫描 skill（与 UI 的“网络搜索”无关）。把宿主轻量自包含业务技能推进各用户 PVC，供 worker 与 pi-web 双入口加载：
 
 ```bash
-node scripts/seed-skills.mjs alice,bob        # 15 个默认技能（code-review/tdd/humanizer-zh/ponytail 全家桶…）
-node scripts/seed-skills.mjs alice,bob data-analyzer,aliyun-cost   # 自定义技能（重技能另需数据源/凭据）
+node worker/scripts/seed-skills.mjs alice,bob        # 15 个默认技能（code-review/tdd/humanizer-zh/ponytail 全家桶…）
+node worker/scripts/seed-skills.mjs alice,bob data-analyzer,aliyun-cost   # 自定义技能（重技能另需数据源/凭据）
 node scripts/verify-21.mjs alice,bob          # 认证/播种/进程内 pi 加载执行 skill 全链路验证
 ```
 

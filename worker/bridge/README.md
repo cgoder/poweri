@@ -18,7 +18,8 @@ node /bridge/server.mjs
 ## 测试
 ```bash
 # 宿主机客户端（Bun 原生 WebSocket，无需安装依赖）
-bun run bridge/test-client.mjs [ws://host:port] ["提示词"]
+# worker/ 目录内：bun run bridge/test-client.mjs [ws://host:port] ["提示词"]
+# 仓库根：bun run worker/bridge/test-client.mjs
 # 流程：连接 → get_state(探针) → prompt → 流式收事件 → isStreaming=false 后取最终文本
 ```
 

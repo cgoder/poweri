@@ -81,7 +81,7 @@
 
 ### 4.5 存量数据初始化（Legacy onboarding）
 
-- `scripts/init-memory.mjs`：平台上线时按用户分批跑。
+- `worker/scripts/init-memory.mjs`：平台上线时按用户分批跑。
   - 输入：存量数据（档案/画像/历史记录 JSON/Markdown，按 userId 提供）。
   - 输出：写入该用户 `/workspace/.poweri/memory/memory.md`（与 4.2 同构）。
   - **幂等**：memory.md 已存在则跳过（不覆盖已累积记忆）。

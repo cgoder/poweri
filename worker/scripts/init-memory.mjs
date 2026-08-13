@@ -1,5 +1,5 @@
 // init-memory.mjs — 存量用户数据初始化进 User Memory（ticket 08 / ADR-0008）
-// 用法: node scripts/init-memory.mjs --legacy <legacy.json> [--data-dir <dir>] [--dry-run]
+// 用法: node worker/scripts/init-memory.mjs --legacy <legacy.json> [--data-dir <dir>] [--dry-run]
 // legacy.json: { "<userId>": { "profile": [...], "facts": [...], "preferences": [...] } }
 // 目标: <data-dir>/users/<userId>/workspace/.poweri/memory/memory.md（与 gateway 用户目录布局一致）
 // 幂等: memory.md 已存在则跳过（不覆盖已累积记忆）；分批、可重试（每用户独立文件）。

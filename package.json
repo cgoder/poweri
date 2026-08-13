@@ -6,7 +6,7 @@
     "validate:env": "bun scripts/validate-env.mjs",
     "gen:pi-config": "bun scripts/gen-pi-config.mjs",
     "install:metrics-server": "node scripts/install-metrics-server.mjs",
-    "test:unit": "node --test \"memory-extension/test/*.test.mjs\"",
+    "test:unit": "node --test \"worker/memory-extension/test/*.test.mjs\"",
     "verify:19": "node scripts/verify-19.mjs",
     "verify:23": "node scripts/verify-23.mjs alice,bob",
     "verify:24": "node scripts/verify-24.mjs",
