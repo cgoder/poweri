@@ -70,6 +70,8 @@ node scripts/verify-29.mjs alice     # 会话改名/删除 + 用户侧计量
 node scripts/verify-30.mjs alice     # 生产收口（资源限额/NetworkPolicy）
 node scripts/verify-31.mjs alice,carol # 新用户按需开通（仅预置 alice，carol 首次接入自动开 worker）
 node scripts/verify-32.mjs alice,carol # 空闲超时缩容（PVC 保留，数据不丢）
+# 4b. 主缝冒烟（迁移/升级回归基准，需真实模型可达 + docker）
+node scripts/verify-33-local-e2e.mjs   # 全链路：web→gateway(docker)→worker(pi)→真实模型（详见 docs/local-e2e-smoke.md）
 # 5. worker 初始化脚本（worker/scripts/）
 node worker/scripts/seed-skills.mjs alice,bob            # 播种默认业务技能到各用户 PVC
 node worker/scripts/init-memory.mjs --legacy legacy.json # 存量用户数据导入 User Memory（幂等）

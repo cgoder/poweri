@@ -79,6 +79,8 @@ async function ensureBridgePod(userId, sessionId) {
   execFileSync("docker", ["run", "-d", "--rm", "--name", name,
     "--cpus", POD_CPUS, "--memory", `${POD_MEM_MB}m`, "--memory-swap", `${POD_MEM_MB}m`,
     "--pids-limit", POD_PIDS,
+    // 以宿主 uid:gid 运行：挂载目录（userPiDir/workspace）由宿主导权，容器内 piuser(1001) 无写权限（ticket 07 实测 EACCES）
+    "-u", `${process.getuid()}:${process.getgid()}`,
     "-v", `${userPiDir(userId)}:/home/piuser/.pi/agent`,
     "-v", `${userWorkspaceDir(userId)}:/workspace`,
     "-e", `POWERI_AI_MODEL=${process.env.POWERI_AI_MODEL ?? "agent"}`,
