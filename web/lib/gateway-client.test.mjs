@@ -103,6 +103,12 @@ test("resolveWebUser：多用户表优先，回退单用户（pi + POWERI_WEB_PA
   assert.equal(resolveWebUser(basic("pi", "poweri-alice")), "pi");
   assert.equal(resolveWebUser(basic("pi", "wrong")), null);
   assert.equal(resolveWebUser(basic("alice", "poweri-alice")), null);
+  // 兼容上游变量名 PI_WEB_PASSWORD（网关模式 + 只设上游密码时仍保底认证）
+  delete process.env.POWERI_WEB_PASSWORD;
+  process.env.PI_WEB_PASSWORD = "upstream-pass";
+  assert.equal(resolveWebUser(basic("pi", "upstream-pass")), "pi");
+  assert.equal(resolveWebUser(basic("pi", "wrong")), null);
+  delete process.env.PI_WEB_PASSWORD;
   process.env.POWERI_WEB_USERS = prevUsers;
   process.env.POWERI_WEB_PASSWORD = prevPass;
 });

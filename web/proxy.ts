@@ -30,7 +30,7 @@ export function proxy(request: NextRequest) {
     const webPassword = process.env.POWERI_WEB_PASSWORD;
     const webUsers = process.env.POWERI_WEB_USERS;
     if (
-      (webPassword || webUsers)
+      (webPassword || webUsers || isWebPasswordEnabled(password))
       && !resolveWebUser(request.headers.get("authorization"))
     ) {
       return new NextResponse("Authentication required", {

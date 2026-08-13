@@ -11,7 +11,7 @@ import type { SessionEntry as PiSessionEntry, SessionInfo as PiSessionInfo } fro
 import { normalizeToolCalls } from "./normalize";
 import { sessionPathKey } from "./session-path";
 import { resolveProject, type ProjectInfo } from "./worktree";
-import { gatewayConfig, fetchGatewaySessions } from "./gateway-client"; // PowerI 网关模式（ticket 04）
+import { gatewayConfig, fetchGatewaySessions, gatewaySessionToInfo } from "./gateway-client"; // PowerI 网关模式（ticket 04）
 
 export { getAgentDir };
 
@@ -71,21 +71,9 @@ export async function listAllSessions(options: { force?: boolean } = {}): Promis
   if (gatewayConfig.enabled) {
     const gw = await fetchGatewaySessions(options.force);
     return gw.map((s) => {
-      const id = String(s.id);
-      cacheSessionPath(id, `/gateway/${id}.jsonl`);
-      return {
-        path: `/gateway/${id}.jsonl`,
-        id: String(s.id),
-        cwd: String(s.cwd ?? gatewayConfig.workspace),
-        name: String(s.name ?? ""),
-        created: String(s.created ?? ""),
-        modified: String(s.modified ?? ""),
-        messageCount: Number(s.messageCount ?? 0),
-        firstMessage: String(s.firstMessage ?? "(no messages)"),
-        parentSessionId: undefined,
-        projectRoot: gatewayConfig.workspace,
-        transient: false,
-      };
+      const info = gatewaySessionToInfo(s);
+      cacheSessionPath(String(s.id), String(info.path));
+      return info as SessionInfo;
     });
   }
   if (options.force) invalidateSessionListCache();

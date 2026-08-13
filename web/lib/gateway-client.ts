@@ -41,7 +41,7 @@ function parseWebUsers(env = process.env.POWERI_WEB_USERS): Record<string, strin
   return map;
 }
 
-/** 认证通过则返回用户名，否则 null。多用户表优先；缺省回退单用户（用户名 pi + POWERI_WEB_PASSWORD）。 */
+/** 认证通过则返回用户名，否则 null。多用户表优先；缺省回退单用户（用户名 pi + POWERI_WEB_PASSWORD/PI_WEB_PASSWORD）。 */
 export function resolveWebUser(authorization: string | null): string | null {
   const creds = decodeCredentials(authorization);
   if (!creds) return null;
@@ -50,7 +50,8 @@ export function resolveWebUser(authorization: string | null): string | null {
     const expected = users[creds.username];
     return expected && secretsEqual(creds.password, expected) ? creds.username : null;
   }
-  const password = process.env.POWERI_WEB_PASSWORD;
+  // 兼容上游变量名 PI_WEB_PASSWORD（网关模式 + 只设上游密码时仍保底认证）
+  const password = process.env.POWERI_WEB_PASSWORD ?? process.env.PI_WEB_PASSWORD;
   return password
     && secretsEqual(creds.username, POWERI_WEB_AUTH_USERNAME)
     && secretsEqual(creds.password, password)
@@ -64,6 +65,11 @@ export const gatewayConfig = {
   token: process.env.POWERI_GATEWAY_TOKEN ?? "",
   workspace: process.env.POWERI_GATEWAY_CWD ?? "/workspace",
 };
+
+// 配置一致性提示：每用户 UI 账号存在但网关 token 映射缺失时，所有用户会解析到同一单用户 token（隔离失效）
+if (gatewayConfig.enabled && process.env.POWERI_WEB_USERS && !process.env.POWERI_GATEWAY_USERS) {
+  console.warn("[poweri] POWERI_WEB_USERS 已设置但 POWERI_GATEWAY_USERS 缺失：所有用户将解析为同一网关 token，跨用户隔离失效（ticket 04）");
+}
 
 // ticket 28：按请求认证用户解析网关 token（POWERI_GATEWAY_USERS 用户名→token）；无则回退单用户 token
 export function gatewayTokenForUser(user: string): string {
@@ -98,6 +104,9 @@ export interface GatewayMessage {
 }
 
 export type AgentEvent = Record<string, unknown> & { type: string };
+
+/** prompt 后网关 ready 事件的等待上限（防挂起；正常链路秒级返回） */
+const PROMPT_READY_TIMEOUT_MS = 60_000;
 
 // ── 纯函数（单测覆盖）───────────────────────────────────────────────
 
@@ -216,6 +225,8 @@ export class GatewaySessionClient {
     this.emitRunningChange();
     const ready = new Promise<void>((resolve) => {
       this.sessionCreatedResolve = resolve;
+      // 兜底：网关接受连接但迟迟不发 ready 时防永久挂起（超时后按无 sessionId 继续）
+      setTimeout(() => this.resolveSessionCreated(), PROMPT_READY_TIMEOUT_MS);
     });
     void (async () => {
       try {
@@ -370,6 +381,23 @@ export async function fetchGatewaySessions(force = false): Promise<Array<Record<
     gatewaySessionsCache = { at: Date.now(), token, sessions: body.sessions ?? [] };
   }
   return gatewaySessionsCache.sessions;
+}
+
+/** 网关会话 → 前端 SessionInfo（session-reader 列表与 sessions/[id] info 共用，避免两处手写映射漂移） */
+export function gatewaySessionToInfo(s: Record<string, unknown>): Record<string, unknown> {
+  return {
+    path: `/gateway/${String(s.id)}.jsonl`,
+    id: String(s.id),
+    cwd: String(s.cwd ?? gatewayConfig.workspace),
+    name: String(s.name ?? ""),
+    created: String(s.created ?? ""),
+    modified: String(s.modified ?? ""),
+    messageCount: Number(s.messageCount ?? 0),
+    firstMessage: String(s.firstMessage ?? "(no messages)"),
+    parentSessionId: undefined,
+    projectRoot: gatewayConfig.workspace,
+    transient: false,
+  };
 }
 
 export async function fetchGatewaySessionMessages(id: string): Promise<{ status: number; messages?: GatewayMessage[] }> {

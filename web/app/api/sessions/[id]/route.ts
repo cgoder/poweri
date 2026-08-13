@@ -41,18 +41,7 @@ export async function GET(
     });
     const gwSessions = await fetchGatewaySessions();
     const entry = gwSessions.find((s) => s.id === id);
-    const info = entry ? {
-      path: `/gateway/${id}.jsonl`,
-      id,
-      cwd: entry.cwd ?? gatewayConfig.workspace,
-      name: String(entry.name ?? ""),
-      created: String(entry.created ?? ""),
-      modified: String(entry.modified ?? ""),
-      messageCount: Number(entry.messageCount ?? uiMessages.length),
-      firstMessage: String(entry.firstMessage ?? "(no messages)"),
-      parentSessionId: undefined,
-      transient: false,
-    } : null;
+    const info = entry ? { ...gatewaySessionToInfo(entry), id, messageCount: Number(entry.messageCount ?? uiMessages.length) } : null;
     return NextResponse.json({
       sessionId: id,
       filePath: `/gateway/${id}.jsonl`,

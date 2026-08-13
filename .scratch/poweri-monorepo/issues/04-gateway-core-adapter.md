@@ -22,3 +22,4 @@
   **验证**（本机 local 实例，fake provider）：单测 8/8；上游测试集 557/557 无回归；gateway 14/14；worker 10/10。全链路：新建会话 → prompt → 流式事件（connected/session_created/agent_start/message_start/message_update/message_end/agent_end/prompt_done）→ 列表 → 历史读取（GW_MODEL）✅；每用户：alice 会话可见、bob 隔离为空、错密码/无认证 401、bob 跨用户访问 alice 会话 404 ✅；回退：无网关配置时 models 返回 SDK 多模型、default-cwd 宿主日期目录、无认证 ✅。
   **环境注记**：本机 shell 有 NODE_ENV=production 残留（dev 需覆盖）；外部 pi-web 守护进程占用 30141（本验证用 30142 规避）；web 依赖安装需 `npm install --include=dev`（全局 omit=dev）。
   **遗留**：会话改名/删除、文件/技能、导出等路由网关分支 → ticket 05；真实 pi 全链路（bridge/docker provider）→ ticket 07。
+  **code-review 修复**（Standards/Spec 双轴）：resolveWebUser 兼容上游 PI_WEB_PASSWORD（网关模式 + 仅设上游密码时保底认证）；SessionInfo 映射抽共享 gatewaySessionToInfo（session-reader 与 sessions/[id] 共用）；POWERI_WEB_USERS 缺 POWERI_GATEWAY_USERS 时启动警告（隔离失效提示）；prompt ready 60s 超时兑底（防挂起）；新增 rpc-manager-gateway.test.mjs（startRpcSession/getRpcSessionInfos/listAllSessions 网关分支源码断言，辅缝 1 补全）。
