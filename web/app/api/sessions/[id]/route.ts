@@ -17,11 +17,11 @@ import { computeSessionTotalActiveMs } from "@/lib/session-timing";
 import {
   gatewayConfig,
   fetchGatewaySessions,
-  fetchGatewaySessionMessages,
-  gatewayMessageToUi,
-  GW_MODEL,
-  type GatewayMessage,
-} from "@/lib/gateway-client"; // PowerI 网关模式（ticket 04）
+  gatewayHistoryContext,
+  gatewaySessionToInfo,
+  fetchGatewaySessionRename,
+  fetchGatewaySessionDelete,
+} from "@/lib/gateway-client"; // PowerI 网关模式（ticket 04/05）
 
 export async function GET(
   req: Request,
@@ -30,25 +30,20 @@ export async function GET(
   const { id } = await params;
   // ── PowerI 网关模式（ticket 04）：历史来自网关 /v1/sessions/<id>/messages，不再读本地会话文件 ──
   if (gatewayConfig.enabled) {
-    const { status, messages } = await fetchGatewaySessionMessages(id);
-    if (status === 404) return NextResponse.json({ error: "Session not found" }, { status: 404 });
-    if (status !== 200 || !messages) return NextResponse.json({ error: `gateway messages HTTP ${status}` }, { status: 502 });
-    const entryIds: string[] = [];
-    const uiMessages = messages.map((m, i) => {
-      const mid = `gw-${i}`;
-      entryIds.push(mid);
-      return gatewayMessageToUi(m as GatewayMessage, mid, i);
-    });
+    const context = await gatewayHistoryContext(id);
+    if (!context) return NextResponse.json({ error: "Session not found" }, { status: 404 });
     const gwSessions = await fetchGatewaySessions();
     const entry = gwSessions.find((s) => s.id === id);
-    const info = entry ? { ...gatewaySessionToInfo(entry), id, messageCount: Number(entry.messageCount ?? uiMessages.length) } : null;
+    const info = entry
+      ? { ...gatewaySessionToInfo(entry), id, messageCount: Number(entry.messageCount ?? context.messages.length) }
+      : null;
     return NextResponse.json({
       sessionId: id,
       filePath: `/gateway/${id}.jsonl`,
       info,
-      leafId: entryIds.length ? entryIds[entryIds.length - 1] : undefined,
+      leafId: context.entryIds.length ? context.entryIds[context.entryIds.length - 1] : undefined,
       tree: [],
-      context: { messages: uiMessages, entryIds, thinkingLevel: "medium", model: { ...GW_MODEL } },
+      context,
     });
   }
   try {
@@ -120,14 +115,15 @@ export async function PATCH(
     if (typeof name !== "string") {
       return NextResponse.json({ error: "name is required" }, { status: 400 });
     }
-    const filePath = await resolveSessionPath(id);
-    if (!filePath) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    // ── PowerI 网关模式（ticket 05）：改名写入 worker PVC（网关 → bridge 追加 session_info）──
+    if (gatewayConfig.enabled) {
+      const { status } = await fetchGatewaySessionRename(id, name.trim());
+      if (status === 404) return NextResponse.json({ error: "Session not found" }, { status: 404 });
+      if (status !== 200) return NextResponse.json({ error: `gateway rename HTTP ${status}` }, { status: 502 });
+      invalidateSessionListCache();
+      return NextResponse.json({ ok: true });
     }
-    const sm = SessionManager.open(filePath);
-    sm.appendSessionInfo(name.trim());
-    invalidateSessionListCache();
-    return NextResponse.json({ ok: true });
+    const filePath = await resolveSessionPath(id);
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
@@ -140,6 +136,15 @@ export async function DELETE(
 ) {
   const { id } = await params;
   try {
+    // ── PowerI 网关模式（ticket 05）：删除 worker PVC 上的会话 JSONL（网关 → bridge）──
+    if (gatewayConfig.enabled) {
+      const { status } = await fetchGatewaySessionDelete(id);
+      if (status === 404) return NextResponse.json({ error: "Session not found" }, { status: 404 });
+      if (status !== 200) return NextResponse.json({ error: `gateway delete HTTP ${status}` }, { status: 502 });
+      await getRpcSession(id)?.shutdown();
+      invalidateSessionListCache();
+      return NextResponse.json({ ok: true });
+    }
     const filePath = await resolveSessionPath(id);
     if (!filePath) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });

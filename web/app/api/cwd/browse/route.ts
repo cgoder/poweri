@@ -8,9 +8,14 @@ import {
   resolveDirectory,
   shouldShowWindowsDrivePicker,
 } from "@/lib/directory-browser";
+import { gatewayConfig } from "@/lib/gateway-client"; // PowerI 网关模式（ticket 05）
 
 // GET /api/cwd/browse?path=...：列出文件系统中的可读子目录。
 export async function GET(request: NextRequest) {
+  // ── PowerI 网关模式（ticket 05）：工作区固定为 worker PVC（/workspace），宿主目录浏览一律拒绝（防宿主路径枚举）──
+  if (gatewayConfig.enabled) {
+    return NextResponse.json({ error: "网关模式工作区固定为 /workspace，不支持宿主目录浏览" }, { status: 400 });
+  }
   try {
     const requested = request.nextUrl.searchParams.get("path")?.trim();
 

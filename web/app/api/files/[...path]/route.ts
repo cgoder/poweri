@@ -21,6 +21,7 @@ import {
 import { resolveDirentIsDirectory } from "@/lib/file-dirent";
 import { isFilePathReferencedBySession } from "@/lib/session-file-references";
 import { isApiRequestAllowed } from "@/lib/request-security";
+import { gatewayConfig, fetchGatewayFile, fetchGatewayFiles } from "@/lib/gateway-client"; // PowerI 网关模式（ticket 05）
 import {
   inspectUploadTargets,
   parseUploadConflictStrategy,
@@ -425,6 +426,28 @@ export async function GET(
       return NextResponse.json({ error: "Invalid file request type" }, { status: 400 });
     }
     const sessionId = request.nextUrl.searchParams.get("sessionId");
+
+    // ── PowerI 网关模式（ticket 05）：文件在 worker PVC，经网关 → bridge 读（只读 list/read/meta；download/preview 未接）──
+    if (gatewayConfig.enabled) {
+      const gwPath = "/" + segments.join("/");
+      try {
+        if (type === "read") {
+          const content = await fetchGatewayFile(gwPath);
+          return NextResponse.json({ content, language: getLanguage(gwPath), size: content.length });
+        }
+        if (type === "meta") {
+          const content = await fetchGatewayFile(gwPath);
+          return NextResponse.json({ size: content.length, language: getLanguage(gwPath), mime: "text/plain" });
+        }
+        if (type === "list") {
+          const data = await fetchGatewayFiles(gwPath, false);
+          return NextResponse.json(data);
+        }
+        return NextResponse.json({ error: `网关模式不支持 type=${type}` }, { status: 400 });
+      } catch (e) {
+        return NextResponse.json({ error: String((e as Error)?.message ?? e) }, { status: 404 });
+      }
+    }
 
     const allowedRoots = await getAllowedFileRoots();
     const allowedByRoot = isFilePathAllowed(filePath, allowedRoots);

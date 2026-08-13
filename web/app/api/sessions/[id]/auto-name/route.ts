@@ -3,12 +3,28 @@ import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { generateSessionTitle } from "@/lib/session-title";
 import { getRpcSession, startRpcSession } from "@/lib/rpc-manager";
 import { invalidateSessionListCache, resolveSessionPath } from "@/lib/session-reader";
+import { gatewayConfig, fetchGatewaySessionMessages } from "@/lib/gateway-client"; // PowerI 网关模式（ticket 05）
 
 export async function POST(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+
+  // ── PowerI 网关模式（ticket 05）：worker 无会话命名 API，用首条用户消息派生标题（本地生成，不走模型）──
+  if (gatewayConfig.enabled) {
+    try {
+      const { status, messages } = await fetchGatewaySessionMessages(id);
+      if (status !== 200 || !messages) {
+        return NextResponse.json({ error: "Session not found" }, { status: 404 });
+      }
+      const firstUser = messages.find((m) => m.role === "user");
+      const title = (firstUser?.text ?? "新会话").replace(/\s+/g, " ").trim().slice(0, 40);
+      return NextResponse.json({ title });
+    } catch (error) {
+      return NextResponse.json({ error: String(error) }, { status: 500 });
+    }
+  }
 
   try {
     const filePath = await resolveSessionPath(id);

@@ -3,6 +3,7 @@ import { statSync, type Stats } from "fs";
 import { homedir } from "os";
 import { isAbsolute, resolve } from "path";
 import { allowFileRoot } from "@/lib/file-access";
+import { gatewayConfig } from "@/lib/gateway-client"; // PowerI 网关模式（ticket 05）
 
 function normalizeCwd(cwd: string): string {
   if (cwd === "~") return homedir();
@@ -13,6 +14,10 @@ function normalizeCwd(cwd: string): string {
 // POST /api/cwd/validate  body: { cwd: string }
 // Validates a candidate workspace before the UI selects it.
 export async function POST(req: Request) {
+  // ── PowerI 网关模式（ticket 05）：工作区固定为 /workspace，拒绝宿主路径校验 ──
+  if (gatewayConfig.enabled) {
+    return NextResponse.json({ error: "网关模式工作区固定为 /workspace" }, { status: 400 });
+  }
   try {
     const body = await req.json() as { cwd?: unknown };
     const cwd = typeof body.cwd === "string" ? body.cwd.trim() : "";

@@ -24,6 +24,16 @@
 | `web/app/api/models-config/route.ts` | GET 只读展示 worker 模型配置；PUT 网关模式 403 | worker 的 models.json 由部署链管理，禁止宿主编辑 | 低 |
 | `web/app/api/default-cwd/route.ts` | POST 网关分支：返回 gatewayConfig.workspace（/workspace） | 真实工作区在 worker PVC | 低 |
 | `web/proxy.ts` | 网关模式认证分支：POWERI_WEB_USERS/POWERI_WEB_PASSWORD 启用时 resolveWebUser 校验（多用户），上游 PI_WEB_PASSWORD 逻辑保留为回退 | 每用户认证（用户名→网关 token 请求级解析的前提） | 低 |
+| `web/app/api/sessions/[id]/route.ts` | PATCH/DELETE 网关分支（改名/删除经网关 → worker PVC；删除时 registry shutdown + 列表缓存失效） | 会话文件在 worker PVC，宿主不可读写 | 中 |
+| `web/app/api/sessions/[id]/context/route.ts` | GET 网关分支（历史经 gatewayHistoryContext） | v0.8.8 新增路由；网关模式无本地 entries | 低 |
+| `web/app/api/sessions/[id]/auto-name/route.ts` | POST 网关分支（首条用户消息派生标题，不走模型） | worker 无会话命名 API | 低 |
+| `web/app/api/sessions/[id]/export/route.ts` | GET 网关分支（JSONL 经网关落临时文件再导出，事后清理） | 会话 JSONL 在 worker PVC | 低 |
+| `web/app/api/file-index/route.ts` | GET 网关分支（经网关递归列出 + q 过滤） | 文件在 worker PVC | 低 |
+| `web/app/api/files/[...path]/route.ts` | GET 网关分支（read/meta/list；download/preview/watch 明确拒绝） | 同上；二进制/流式能力未接 | 低 |
+| `web/app/api/plugins/route.ts` | GET 空列表 + POST 拒绝 | worker 无插件包体系 | 低 |
+| `web/app/api/skills/route.ts` | GET 经网关扫描；PATCH 拒绝（SKILL.md 在 worker PVC） | 技能播种走 seed-skills | 低 |
+| `web/app/api/cwd/browse/route.ts` | 网关模式拒绝（400） | 工作区固定 /workspace；防宿主目录枚举（上游 browse 无授权检查） | 低 |
+| `web/app/api/cwd/validate/route.ts` | 网关模式拒绝（400） | 工作区固定 /workspace | 低 |
 | `web/package.json` | dependencies 增加 `eventsource-parser@^3.1.1` | SSE 增量解析（业界标准，Vercel AI SDK 同款） | 低（上游加同依赖时冲突易解） |
 
 ## gateway/ 内改动（源仓库已冻结归档，无 pull 冲突面；仅记录）
@@ -31,11 +41,14 @@
 | 文件 | 改动 | 理由 |
 |---|---|---|
 | `gateway/pods.mjs` | fake provider 的 message_update 事件补 `assistantMessageEvent`（对齐真实 pi 事件形状） | v0.8.8 web 端 toClientAgentEvent 依赖该字段（本地 fake 验证链路） |
-| `gateway/server.mjs` | fake 模式 `/v1/chat` 落盘会话 JSONL（sessionFileHost）；修复 localSessions 缺 import `sessionListEntry` 的隐藏 bug | fake 是主测试缝：会话列表/历史可验证（ticket 04）；原 bug 因列表恒空从未暴露 |
+| `gateway/server.mjs` | fake 模式 `/v1/chat` 落盘会话 JSONL（sessionFileHost，首行 session header）；修复 localSessions 缺 import `sessionListEntry` 的隐藏 bug；localFiles/localFile 路径语义对齐 bridge（/workspace 前缀映射，未初始化目录返回空）；递归列表输出对齐 bridge 形状（/workspace/... 相对路径） | fake 是主测试缝：会话列表/历史/导出可验证（ticket 04/05）；真实 worker 写文件格式含 session header，导出等 SDK 消费路径需要 |
 
 ## 后续路线（ticket 05+）
 
-- 会话改名/删除（PATCH/DELETE /api/sessions/[id] 网关分支，fetchGatewaySessionRename/Delete 已就绪）
-- 文件浏览器/技能菜单（/v1/files、/v1/skills 网关代理）
-- 会话导出（/v1/sessions/<id>/jsonl）
-- sessions/[id]/context、entries、state、auto-name 等子路由网关分支
+- 会话改名/删除（PATCH/DELETE /api/sessions/[id] 网关分支，fetchGatewaySessionRename/Delete 已就绪）→ **ticket 05 已完成**
+- 文件浏览器/技能菜单（/v1/files、/v1/skills 网关代理）→ **ticket 05 已完成**
+- 会话导出（/v1/sessions/<id>/jsonl）→ **ticket 05 已完成**
+- sessions/[id]/context、auto-name、cwd/browse+validate 网关分支 → **ticket 05 已完成**
+- 插件管理（worker 无插件包体系，GET 空/POST 拒绝）→ **ticket 05 已完成**
+- 真实 pi 全链路冒烟（bridge/docker provider + 浏览器交互）→ ticket 07（local-e2e-smoke）
+- 定制清单校验脚本（结构校验 + 清单校验 + dry-run 冲突预期）→ ticket 08（adaptation-validation）

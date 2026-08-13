@@ -1,12 +1,13 @@
 import { randomUUID } from "crypto";
 import { execFile } from "child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
 import { promisify } from "util";
 import { fileURLToPath, pathToFileURL } from "url";
 import { NextResponse } from "next/server";
 import { resolveSessionPath } from "@/lib/session-reader";
+import { gatewayConfig, fetchGatewaySessionJsonl } from "@/lib/gateway-client"; // PowerI 网关模式（ticket 05）
 
 const execFileAsync = promisify(execFile);
 
@@ -246,9 +247,22 @@ export async function GET(
   const inline = new URL(req.url).searchParams.get("inline") === "1";
 
   try {
-    const filePath = await resolveSessionPath(id);
-    if (!filePath) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    let filePath: string | null = null;
+    let cleanupTemp: string | null = null;
+    if (gatewayConfig.enabled) {
+      // ── PowerI 网关模式（ticket 05）：会话 JSONL 在 worker PVC，经网关取原始行落到临时文件再导出 ──
+      const { status, lines } = await fetchGatewaySessionJsonl(id);
+      if (status !== 200 || lines === undefined) {
+        return NextResponse.json({ error: "Session not found" }, { status: 404 });
+      }
+      filePath = join(tmpdir(), `gateway-${id}.jsonl`);
+      writeFileSync(filePath, lines);
+      cleanupTemp = filePath;
+    } else {
+      filePath = await resolveSessionPath(id);
+      if (!filePath) {
+        return NextResponse.json({ error: "Session not found" }, { status: 404 });
+      }
     }
 
     const tempDir = join(tmpdir(), "pi-web-export");
@@ -275,6 +289,7 @@ export async function GET(
       });
     } finally {
       rmSync(outputPath, { force: true });
+      if (cleanupTemp) rmSync(cleanupTemp, { force: true });
     }
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

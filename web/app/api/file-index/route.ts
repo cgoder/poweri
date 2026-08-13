@@ -10,6 +10,7 @@ import {
   isWindowsAbsolutePath,
 } from "@/lib/file-access";
 import { buildEntriesFromFiles, filterFileEntries, type FileIndexEntry } from "@/lib/file-fuzzy";
+import { gatewayConfig, fetchGatewayFiles } from "@/lib/gateway-client"; // PowerI 网关模式（ticket 05）
 
 const execFileAsync = promisify(execFile);
 
@@ -121,6 +122,21 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "cwd must be an absolute path" }, { status: 400 });
     }
     const query = req.nextUrl.searchParams.get("q")?.slice(0, MAX_QUERY_LENGTH) ?? "";
+
+    // ── PowerI 网关模式（ticket 05）：文件在 worker PVC，经网关 → bridge 递归列出（跳过 node_modules/.git 等）──
+    if (gatewayConfig.enabled) {
+      try {
+        const data = (await fetchGatewayFiles(cwd, true)) as { files?: string[] };
+        const files = data.files ?? [];
+        if (query) {
+          const q = query.toLowerCase();
+          return NextResponse.json({ matches: files.filter((f) => f.toLowerCase().includes(q)).map((f) => ({ path: f, isDir: false })) });
+        }
+        return NextResponse.json({ files, truncated: false });
+      } catch (e) {
+        return NextResponse.json({ error: String((e as Error)?.message ?? e) }, { status: 502 });
+      }
+    }
 
     const allowedRoots = await getAllowedFileRoots();
     if (!isFilePathAllowed(cwd, allowedRoots)) {

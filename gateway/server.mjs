@@ -73,10 +73,14 @@ function localSessions(userId) {
 
 // 本地模式文件/技能（仅开发回退；产品走 k8s provider 的 fetchWorker* 读 PVC）
 // ponytail: 与 bridge 的 listDir/scanSkills 各存一份——k8s 为产品路径，本地是开发占位，不共享模块
+// 路径语义对齐 bridge resolveInWorkspace：绝对路径（如 /workspace）映射到用户工作区根，相对路径 join 根下
 function localFiles(userId, p, recursive) {
   const root = userWorkspaceDir(userId);
-  const target = path.resolve(root, p ?? "/");
-  if (!target.startsWith(root) || !existsSync(target)) throw new Error("Directory not found");
+  const rel = (p ?? "/").replace(/^\/workspace/, "") || "/";
+  const target = path.resolve(root, "." + rel);
+  // 开发占位：目录未初始化（用户尚未建过会话）时返回空列表；产品路径 PVC 部署时必有，不受影响
+  if (!target.startsWith(root)) throw new Error("Directory not found");
+  if (!existsSync(target)) return recursive ? { files: [] } : { entries: [], path: target };
   if (!statSync(target).isDirectory()) throw new Error("Not a directory");
   if (!recursive) {
     const entries = readdirSync(target, { withFileTypes: true })
@@ -93,7 +97,8 @@ function localFiles(userId, p, recursive) {
       if (d.name === "node_modules" || d.name === ".git") continue;
       const full = path.join(dir, d.name);
       if (d.isDirectory()) walk(full, depth + 1);
-      else files.push(full);
+      // 对齐 bridge 形状（容器内绝对路径 /workspace/...），供 pi-web 文件索引/URL round-trip
+      else files.push("/workspace/" + path.relative(root, full).split(path.sep).join("/"));
     }
   };
   walk(target, 0);
@@ -102,7 +107,8 @@ function localFiles(userId, p, recursive) {
 
 function localFile(userId, p) {
   const root = userWorkspaceDir(userId);
-  const target = path.resolve(root, p ?? "");
+  const rel = (p ?? "").replace(/^\/workspace/, "");
+  const target = path.resolve(root, "." + rel);
   if (!target.startsWith(root) || !existsSync(target)) throw new Error("file not found");
   return readFileSync(target, "utf8");
 }
@@ -184,9 +190,15 @@ const server = createServer(async (req, res) => {
       try {
         const { stream } = await streamPod(userId, sessionId, message, requestId);
         // fake 测试缝：模拟真实链路的 worker 落盘（真实形态由 worker 内 pi 写会话 JSONL，网关不写）——
-        // 使 fake 模式下 /v1/sessions 列表与 /v1/sessions/<id>/messages 历史可验证（ticket 04 主测试缝）
+        // 使 fake 模式下 /v1/sessions 列表与 /v1/sessions/<id>/messages 历史可验证（ticket 04 主测试缝）；
+        // 首行写 session header（真实 pi 会话文件格式），保证导出/校验等 SDK 消费路径可用（ticket 05）
         const fakeSessionFile = POD_PROVIDER === "fake" ? sessionFileHost(userId, sessionId) : null;
-        if (fakeSessionFile) mkdirSync(path.dirname(fakeSessionFile), { recursive: true });
+        if (fakeSessionFile) {
+          mkdirSync(path.dirname(fakeSessionFile), { recursive: true });
+          if (!existsSync(fakeSessionFile)) {
+            appendFileSync(fakeSessionFile, JSON.stringify({ type: "session", id: sessionId, cwd: "/workspace", timestamp: new Date().toISOString() }) + "\n");
+          }
+        }
         for await (const ev of stream) {
           if (fakeSessionFile) appendFileSync(fakeSessionFile, JSON.stringify(ev) + "\n");
           if (ev?.type === "message_end" && ev.message?.role === "assistant" && ev.message.usage) {

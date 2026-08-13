@@ -12,6 +12,7 @@ import {
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { getProjectTrustStatus } from "@/lib/project-trust";
+import { gatewayConfig } from "@/lib/gateway-client"; // PowerI 网关模式（ticket 05）
 import type {
   PluginDiagnostic,
   PluginPackageInfo,
@@ -283,6 +284,16 @@ export async function GET(req: Request) {
   const cwd = searchParams.get("cwd");
   if (!cwd) return NextResponse.json({ error: "cwd required" }, { status: 400 });
 
+  // ── PowerI 网关模式（ticket 05）：worker 无插件包体系（技能走 seed-skills 播种、扩展走 -e 参数），真实状态即空列表 ──
+  if (gatewayConfig.enabled) {
+    return NextResponse.json({
+      packages: [],
+      totals: emptyCounts(),
+      diagnostics: [],
+      projectResourcesLoaded: true,
+    });
+  }
+
   try {
     const allowedRoots = await getAllowedFileRoots();
     if (!isExistingFilePathAllowed(cwd, allowedRoots)) {
@@ -312,6 +323,10 @@ export async function POST(req: Request) {
     };
     if (!body.cwd) return NextResponse.json({ error: "cwd required" }, { status: 400 });
     if (!body.action) return NextResponse.json({ error: "action required" }, { status: 400 });
+    // ── PowerI 网关模式（ticket 05）：worker 无插件包体系，插件管理直接拒绝 ──
+    if (gatewayConfig.enabled) {
+      return NextResponse.json({ error: "网关模式不支持插件管理（worker 无插件包体系，技能走 seed-skills）" }, { status: 400 });
+    }
     const allowedRoots = await getAllowedFileRoots();
     if (!isExistingFilePathAllowed(body.cwd, allowedRoots)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });

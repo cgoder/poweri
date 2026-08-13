@@ -434,3 +434,53 @@ export async function fetchGatewaySessionDelete(id: string): Promise<{ status: n
   });
   return { status: res.status };
 }
+
+// 工作区文件/技能（ticket 05：网关 → bridge 读 worker PVC；pi-web 壳文件浏览器/搜索/技能菜单）
+// recursive=1 → { files: string[] }（绝对路径，跳过 node_modules/.git 等）；否则 { entries, path }
+export async function fetchGatewayFiles(path: string, recursive: boolean): Promise<Record<string, unknown>> {
+  const res = await fetch(`${gatewayConfig.baseUrl}/v1/files?path=${encodeURIComponent(path)}&recursive=${recursive ? "1" : "0"}`, {
+    headers: { Authorization: `Bearer ${await gatewayTokenForRequest()}` },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json() as Promise<Record<string, unknown>>;
+}
+
+/** 工作区文件内容（utf8 只读） */
+export async function fetchGatewayFile(path: string): Promise<string> {
+  const res = await fetch(`${gatewayConfig.baseUrl}/v1/file?path=${encodeURIComponent(path)}`, {
+    headers: { Authorization: `Bearer ${await gatewayTokenForRequest()}` },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return ((await res.json()) as { content?: string }).content ?? "";
+}
+
+/** 技能列表（seed-skills 播种目录；扫描 SKILL.md frontmatter） */
+export async function fetchGatewaySkills(): Promise<Array<Record<string, unknown>>> {
+  const res = await fetch(`${gatewayConfig.baseUrl}/v1/skills`, {
+    headers: { Authorization: `Bearer ${await gatewayTokenForRequest()}` },
+  });
+  if (!res.ok) return [];
+  return ((await res.json()) as { skills?: Array<Record<string, unknown>> }).skills ?? [];
+}
+
+/**
+ * 网关历史 → 前端上下文（sessions/[id] GET 与 sessions/[id]/context GET 共用，避免两处映射漂移）。
+ * 返回 null 表示会话不存在（网关 404）。
+ */
+export async function gatewayHistoryContext(id: string): Promise<{
+  messages: Array<Record<string, unknown>>;
+  entryIds: string[];
+  thinkingLevel: string;
+  model: typeof GW_MODEL;
+} | null> {
+  const { status, messages } = await fetchGatewaySessionMessages(id);
+  if (status === 404) return null;
+  if (status !== 200 || !messages) throw new Error(`gateway messages HTTP ${status}`);
+  const entryIds: string[] = [];
+  const uiMessages = messages.map((m, i) => {
+    const mid = `gw-${i}`;
+    entryIds.push(mid);
+    return gatewayMessageToUi(m as GatewayMessage, mid, i);
+  });
+  return { messages: uiMessages, entryIds, thinkingLevel: "medium", model: { ...GW_MODEL } };
+}

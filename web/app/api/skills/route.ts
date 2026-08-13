@@ -5,6 +5,7 @@ import path from "path";
 import { getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import { loadSkillsWithInstallInfo } from "@/lib/skills-service";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
+import { gatewayConfig, fetchGatewaySkills } from "@/lib/gateway-client"; // PowerI 网关模式（ticket 05）
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,16 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const cwd = searchParams.get("cwd");
   if (!cwd) return NextResponse.json({ error: "cwd required" }, { status: 400 });
+
+  // ── PowerI 网关模式（ticket 05）：技能在 worker PVC（seed-skills 播种目录），经网关 → bridge 扫描 ──
+  if (gatewayConfig.enabled) {
+    try {
+      const skills = await fetchGatewaySkills();
+      return NextResponse.json({ skills, diagnostics: [], projectResourcesLoaded: true });
+    } catch (e) {
+      return NextResponse.json({ error: String((e as Error)?.message ?? e) }, { status: 502 });
+    }
+  }
 
   try {
     const allowedRoots = await getAllowedFileRoots();
@@ -33,6 +44,10 @@ export async function PATCH(req: Request) {
     const body = await req.json() as { filePath: string; disableModelInvocation: boolean };
     const { filePath, disableModelInvocation } = body;
     if (!filePath) return NextResponse.json({ error: "filePath required" }, { status: 400 });
+    // ── PowerI 网关模式（ticket 05）：SKILL.md 在 worker PVC，无写 API（技能管理走 seed-skills 重播种）──
+    if (gatewayConfig.enabled) {
+      return NextResponse.json({ error: "网关模式不支持技能禁用开关（SKILL.md 在 worker PVC，重新播种生效）" }, { status: 400 });
+    }
     if (!existsSync(filePath)) return NextResponse.json({ error: "file not found" }, { status: 404 });
     const allowedRoots = new Set(await getAllowedFileRoots());
     allowedRoots.add(getAgentDir());
