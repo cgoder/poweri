@@ -34,12 +34,12 @@ node scripts/build-image.mjs            # → poweri-worker:local（512MB，可�
 
 **运行资源实测**：本地镜像冷启动 273–639ms（容器创建→桥就绪）；销毁毫秒级无残留；单会话活跃内存 ~210MB（桥 58M + pi 152M），512MB 限额余 ~60%。镜像大小成本在存储与首拉带宽，不随运行波动。
 
-## Gateway 镜像（独立仓库 poweri-gateway）
+## Gateway 镜像（monorepo gateway/，ticket 02 已并入）
 
-无状态网关层（认证/路由/计量/账单）已拆为独立仓库 **/Users/tianzhao/code/leoao/poweri-gateway**（三模块：PowerI / poweri-gateway / PowerI-Web）。其 `Dockerfile.gateway` 与 `scripts/build-gateway.mjs` 在网关仓库内维护，构建产物 `poweri-gateway:local` 供本项目的 gen-k8s 部署引用：
+无状态网关层（认证/路由/计量/账单）已并入 monorepo `gateway/`（原独立仓库 /Users/tianzhao/code/leoao/poweri-gateway）。其 `Dockerfile.gateway` 与 `scripts/build-gateway.mjs` 随模块归位，构建产物 `poweri-gateway:local` 供根级 gen-k8s 部署引用：
 
 ```bash
-cd /Users/tianzhao/code/leoao/poweri-gateway && node scripts/build-gateway.mjs  # → poweri-gateway:local（247MB）
+cd gateway && node scripts/build-gateway.mjs  # → poweri-gateway:local（247MB）
 ```
 
 - 多阶段：依赖层 `npm install --omit=dev`（锁 ws@^8.18），运行时层只拷 `*.mjs`（不含 test/node_modules）

@@ -1,6 +1,6 @@
-// 会话 JSONL 解析与 DTO（与 poweri-gateway 仓库同步的契约副本）
-// 契约所有者：/Users/tianzhao/code/leoao/poweri-gateway/session-parse.mjs（独立仓库）
-// 变更须两仓库同步 + 两侧单测锁一致（PowerI gateway/test/session-api.test.mjs 等价物）
+// 会话 JSONL 解析与 DTO（与 gateway 模块同步的契约副本）
+// 契约所有者：monorepo gateway/session-parse.mjs（ticket 02 并入）
+// 变更须两模块同步（worker/bridge 与 gateway/，各自打包进不同镜像，镜像内各持副本）+ 两侧单测锁一致（gateway/test/session-api.test.mjs 等价物）
 // 会话 JSONL → 消息列表（纯函数，无 IO；单测覆盖，server.mjs 与测试共用）
 export function messagesFromJsonl(lines) {
   const messages = [];

@@ -1,4 +1,4 @@
-// 构建 Gateway 镜像（独立仓库版）
+// 构建 Gateway 镜像（monorepo gateway/ 模块；ticket 02 并入）
 // 用法：node scripts/build-gateway.mjs <tag>   （tag 默认 poweri-gateway:local）
 import { execFileSync } from "node:child_process";
 import path from "node:path";

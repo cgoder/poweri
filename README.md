@@ -11,7 +11,7 @@
 - **术语表**：`CONTEXT.md`
 - **调研**：`docs/research/`（容器部署 / 容器 PoC / 记忆生态包 / pi-web 深度 / pi-web 视觉多用户验证）
 - **设计**：`docs/design/08-user-memory.md`
-- **执行 ticket**：`.scratch/poweri-monorepo/issues/`（01–09：monorepo 骨架 → gateway subtree 并入 → web subtree 引入 → 适配层重放 → local 全链路验证 → gitlab 迁移）
+- **执行 ticket**：`.scratch/poweri-monorepo/issues/`（01–09：monorepo 骨架 → gateway subtree 并入 → web subtree 引入 → 适配层重放 → local 全链路验证 → gitlab 迁移；01/02 已完成）
   - 平台主线历史（已收口）：`.scratch/pi-agent-platform/issues/`（01–32）
 
 ## 仓库结构（monorepo，ADR-0010）
@@ -23,7 +23,7 @@ worker/            Worker 沙箱模块（自包含）：
                    docker/           Worker 镜像构建（Dockerfile.poweri + 大小/资源实测文档）
                    scripts/          Worker 初始化脚本（init-memory 存量记忆导入、seed-skills 播种）
 gateway/           无状态网关：认证/路由/会话续接/并发串行/流式转发(SSE+WS)/计量/计价/账单/日志
-                   —— ticket 02 经 git subtree add 并入，当前未就位
+                   —— ticket 02 已并入（git subtree add，squash；源 poweri-gateway dev f3a9406）
 web/               PowerI-Web（网关模式 UI 壳）
                    —— ticket 03 经 git subtree 自上游 agegr/pi-web 引入，当前未就位（待 subtree 引入）
 deploy/            平台控制面部署物：k8s/（每用户 PVC/Deployment/NodePort、NetworkPolicy、gateway 部署）+ config/（平台 pi 配置，gen-pi-config 输出）

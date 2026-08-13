@@ -1,6 +1,6 @@
-# poweri-gateway（PowerI 网关，独立仓库）
+# poweri-gateway（PowerI 网关，monorepo 模块）
 
-无状态、水平扩展的网关：认证、路由到 Worker Pod（经其桥的 WebSocket）、流式转发、会话续接、并发控制、计量。2026-08 自 PowerI 仓库拆分为独立项目（三模块：PowerI / poweri-gateway / PowerI-Web），由 K8s 管理运行的独立容器。
+无状态、水平扩展的网关：认证、路由到 Worker Pod（经其桥的 WebSocket）、流式转发、会话续接、并发控制、计量。2026-08 自 PowerI 仓库拆分为独立项目，同年经 `git subtree add` 并入 monorepo `gateway/`（ADR-0010），由 K8s 管理运行的独立容器。
 
 - **主测试缝**：网关客户端 API，Pod 层用 fake 内存 Pod 替换（测试只测外部行为）
 - **无状态**：不保存会话；路由/认证全靠请求自身，状态外置（元数据存储 store.mjs）
@@ -32,8 +32,8 @@
 ```bash
 # 独立部署（需 Secret poweri-secrets 已存在：POWERI_GATEWAY_USERS 键；POWERI_K8S_USERS 占位符需替换为每用户 worker 映射）
 kubectl apply -f deploy/k8s/gateway.yaml
-# 聚合一键部署（开发环境推荐）：由 PowerI 控制面注入 K8S_USERS + Secret 并部署全链路
-cd /Users/tianzhao/code/github/Poweri && POWERI_AI_API_KEY=<key> node scripts/gen-k8s.mjs alice,bob --ui
+# 聚合一键部署（开发环境推荐）：由 monorepo 根控制面注入 K8S_USERS + Secret 并部署全链路
+cd <monorepo根> && POWERI_AI_API_KEY=<key> node scripts/gen-k8s.mjs alice,bob --ui
 ```
 
 > manifest 归本仓库自描述（Deployment + PVC + Service NodePort 31080），PowerI 的 `gen-k8s` 控制面只做聚合引用（注入 `${K8S_USERS}` 与 Secret），不改动本仓库部署形态。

@@ -1,5 +1,5 @@
 // 生成并应用 K8s 资源（ticket 16 PoC：每用户 PVC + worker Deployment + NodePort Service；ticket 27：--ui 部署 PowerI-Web 网关模式壳）
-// 三模块架构（2026-08）：worker 模板本仓库自持（参数化）；gateway/Web 的 manifest 归各自独立仓库（deploy/k8s/），此处聚合引用（注入占位符 + Secret/ConfigMap）
+// 三模块架构（2026-08）：worker 模板本仓库自持（参数化）；gateway 已并入 monorepo gateway/（ticket 02），Web 暂归独立仓库（ticket 03 引入）；此处聚合引用（注入占位符 + Secret/ConfigMap）
 // 用法：node scripts/gen-k8s.mjs [alice,bob,...] [--piweb|--piweb2|--ui]   （默认 alice,bob；worker nodePort 从 30081 起；piweb 30241 起；jmfederico 30251 起；ui 30341）
 // 前置：OrbStack K8s 已启用；poweri-worker:local 镜像可拉（OrbStack 共享镜像）；项目 deploy/config/pi 有 gen-pi-config 生成的 models.json/settings.json（或 POWERI_PI_CONFIG_DIR 指定）
 // 配置播种：ConfigMap 由 pi 配置生成，initContainer 复制进各用户 PVC（每用户隔离副本，可各自在界面改）
@@ -51,9 +51,10 @@ const CONFIG_SRC =
 		"config",
 		"pi",
 	);
-// 三模块独立仓库路径（gateway/Web 的 K8s manifest 归各自仓库自描述，控制面聚合引用）
+// 三模块路径（gateway 已并入 monorepo gateway/；Web 尚未引入，暂指独立仓库；env 可覆盖）
 const GW_DIR =
-	process.env.POWERI_GATEWAY_DIR || "/Users/tianzhao/code/leoao/poweri-gateway";
+	process.env.POWERI_GATEWAY_DIR ||
+	path.resolve(import.meta.dirname, "..", "gateway");
 const WEB_DIR =
 	process.env.POWERI_WEB_DIR || "/Users/tianzhao/code/leoao/poweri-web";
 // 读模板 manifest 并替换占位符 ${KEY}（值来自本脚本运行时计算）
@@ -239,7 +240,7 @@ console.log(
 	`✓ 资源已应用：${users.map((u) => `worker-${u} (nodePort ${NODE_PORT_BASE + users.indexOf(u)})`).join(", ")}`,
 );
 
-// ── 3. gateway：manifest 归独立仓库（poweri-gateway/deploy/k8s/gateway.yaml），此处聚合引用 ──
+// ── 3. gateway：manifest 归 monorepo gateway/deploy/k8s/gateway.yaml（ticket 02 已并入），此处聚合引用 ──
 // 数据挂独立 PVC（meta/计量不丢）；多副本水平扩展需共享元数据存储（生产：数据库，store.mjs 注释）
 const k8sUsers = users
 	.map((u) => `${u}:worker-${u}.${NS}.svc.cluster.local:8081`)
@@ -252,7 +253,7 @@ applyManifest(path.join(GW_DIR, "deploy", "k8s", "gateway.yaml"), {
 	LLMS_EXTRA_HOSTS: process.env.POWERI_LLMS_EXTRA_HOSTS ?? "",
 });
 console.log(
-	`✓ gateway 已部署（NodePort 31080，manifest 来自 poweri-gateway 仓库 ${path.join(GW_DIR, "deploy", "k8s", "gateway.yaml")}；缩容空闲阈值 ${process.env.POWERI_WORKER_IDLE_MINUTES ?? "30"}min）`,
+	`✓ gateway 已部署（NodePort 31080，manifest 来自 monorepo gateway/ ${path.join(GW_DIR, "deploy", "k8s", "gateway.yaml")}；缩容空闲阈值 ${process.env.POWERI_WORKER_IDLE_MINUTES ?? "30"}min）`,
 );
 
 // ── 2c. PowerI-Web UI（ticket 27：单一网关模式壳，指向网关 Service；无 PVC——数据全在 worker 侧）──

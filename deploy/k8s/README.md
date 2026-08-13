@@ -4,11 +4,11 @@
 
 三模块各自独立编译 / 独立生成镜像 / 独立容器，K8s 部署形态**归各项目仓库自描述**，本仓库（PowerI）是控制面：`gen-k8s.mjs` 聚合一键部署（生成 per-user worker 模板 + Secret/ConfigMap，并**聚合引用** gateway/Web 的 manifest）：
 
-| 模块 | 仓库 | 镜像 | K8s manifest 归属 |
+| 模块 | 位置 | 镜像 | K8s manifest 归属 |
 |---|---|---|---|
-| PowerI（Worker） | 本仓库 | `poweri-worker:local`（Dockerfile.poweri） | per-user 模板在 `scripts/gen-k8s.mjs`（参数化：用户/端口/token） |
-| poweri-gateway | /Users/tianzhao/code/leoao/poweri-gateway | `poweri-gateway:local`（Dockerfile.gateway） | `deploy/k8s/gateway.yaml`（Deployment+PVC+Service 31080，${K8S_USERS} 占位符） |
-| PowerI-Web | /Users/tianzhao/code/leoao/poweri-web | `poweri-web:local`（Dockerfile） | `deploy/k8s/poweri-web.yaml`（Deployment+Service 30341，${WEB_USERS}/${GW_USERS} 占位符） |
+| PowerI（Worker） | 本仓库 `worker/` | `poweri-worker:local`（worker/docker/Dockerfile.poweri） | per-user 模板在 `scripts/gen-k8s.mjs`（参数化：用户/端口/token） |
+| poweri-gateway | monorepo `gateway/`（ticket 02 并入） | `poweri-gateway:local`（gateway/Dockerfile.gateway） | `gateway/deploy/k8s/gateway.yaml`（Deployment+PVC+Service 31080，${K8S_USERS} 占位符） |
+| PowerI-Web | /Users/tianzhao/code/leoao/poweri-web（ticket 03 引入 monorepo） | `poweri-web:local`（Dockerfile） | `deploy/k8s/poweri-web.yaml`（Deployment+Service 30341，${WEB_USERS}/${GW_USERS} 占位符） |
 
 聚合一键部署：`POWERI_AI_API_KEY=<key> node scripts/gen-k8s.mjs alice,bob --ui`（注入占位符 + 生成 Secret + apply）。单仓库独立部署见各仓库 README 的 K8s 章节。
 
@@ -107,7 +107,7 @@ node scripts/verify-k8s.mjs            # 多用户隔离 / 会话落 PVC / Pod �
 
 `node scripts/gen-k8s.mjs [users]` 现同时部署无状态网关层：
 
-- `gateway` Deployment（镜像 `poweri-gateway:local`，Dockerfile 在独立仓库 poweri-gateway（/Users/tianzhao/code/leoao/poweri-gateway），构建：`node scripts/build-gateway.mjs`）
+- `gateway` Deployment（镜像 `poweri-gateway:local`，Dockerfile 在 monorepo `gateway/Dockerfile.gateway`，构建：`cd gateway && node scripts/build-gateway.mjs`）
   - 数据挂独立 `gateway-pvc`（meta/计量持久；多副本水平扩展需共享元数据存储，生产换数据库，见 `gateway/store.mjs` 注释）
   - 内部经 Service DNS 路由到 worker：`POWERI_K8S_USERS="alice:worker-alice.poweri.svc.cluster.local:8081"`（k8s provider 支持 host:port 形式，开发机场景仍可 `alice:30081` NodePort + `POWERI_K8S_NODE_HOST`）
 - `gateway` Service：NodePort 31080（集群内 `gateway.poweri.svc.cluster.local:8080`）
