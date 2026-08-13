@@ -2,9 +2,11 @@
 
 ## 项目结构（三模块，2026-08）
 
-1. **PowerI**（本仓库）：Worker 沙箱（bridge + pi + 扩展 + skills）+ 控制面（gen-k8s 部署编排、K8s manifests、验证脚本、ADR）
-2. **poweri-gateway**（独立仓库 /Users/tianzhao/code/leoao/poweri-gateway）：无状态网关（认证/路由/计量/续接/会话管理 API）
-3. **PowerI-Web**（独立仓库 /Users/tianzhao/code/leoao/poweri-web）：用户交互 UI（网关模式壳）
+1. **Monorepo（平台代码库）**：三模块共居一仓（ADR-0010）：
+   - `worker/`：Worker 沙箱（bridge + pi + 扩展 + skills），原 poweri 仓库的 worker 部分
+   - `gateway/`：无状态网关（认证/路由/计量/续接/会话管理 API），原 poweri-gateway 仓库
+   - `web/`：用户交互 UI（网关模式壳），git subtree 自上游 agegr/pi-web 引入
+   - 控制面（gen-k8s 部署编排、K8s manifests、验证脚本）与平台文档（CONTEXT.md、docs/adr/）位于 monorepo 根，部署责任分列到各模块目录
 
 数据流：浏览器 → PowerI-Web → poweri-gateway → Worker（bridge → pi）→ 模型。
 
@@ -48,8 +50,8 @@ _Avoid_: archive, history
 > **同名双项目命名规范**：有两个同名项目 `pi-web`（上游与社区 fork），所有书面/口头引用必须带所有者前缀，严禁裸用 "pi-web" 指代两者之一。
 
 **PowerI-Web** (曾用名 **pi-web (agegr)**):
-独立仓库 `github.com/tianzhao/poweri-web`（本地 `/Users/tianzhao/code/leoao/poweri-web`），fork 自上游 agegr/pi-web v0.8.6（MIT），网关模式 Web 壳（Web UI → 网关 → worker），仅验证场景使用。代码内一律小写 `poweri-web`，展示文案保留品牌名 `PowerI-Web`。上游 npm `@agegr/pi-web`（v0.8.6）仍用于 `poweri-piweb` 镜像 / `piweb-<user>` pods（NodePort 30241+，进程内 pi 0.83.0）。
-_Avoid_: pi-web (bare), the original pi-web
+monorepo 的 `web/` 子目录（ADR-0010）：以 `git subtree` 自上游 agegr/pi-web 引入（升级 = `git subtree pull`），网关模式 Web 壳（Web UI → 网关 → worker），代码内一律小写 `poweri-web`，展示文案保留品牌名 `PowerI-Web`。旧复制式 fork 历史（v0.8.6 基底）由 gitlab 旧 project 归档保留。上游 npm `@agegr/pi-web`（v0.8.6）仍用于 `poweri-piweb` 镜像 / `piweb-<user>` pods（NodePort 30241+，进程内 pi 0.83.0）。
+_Avoid_: pi-web (bare), the original pi-web, 独立仓库（指开发基地）
 
 **pi-web (jmfederico)**:
 The community rewrite of pi-web: Fastify/Lit, npm `@jmfederico/pi-web` (v1.202607.3), split sessiond+web processes, drives pi-coding-agent **0.82.1** in-process (peer range `<0.83`, 与 PowerI 版本错位). Deployed per-user as `poweri-piweb2` image / `piweb2-<user>` pods (NodePort 30251+). A′ pilot baseline (ticket 22).
