@@ -13,7 +13,8 @@
     "verify:27": "node scripts/verify-27.mjs alice,bob",
     "verify:28": "node scripts/verify-28.mjs alice,bob",
     "verify:29": "node scripts/verify-29.mjs alice",
-    "verify:30": "node scripts/verify-30.mjs alice"
+    "verify:30": "node scripts/verify-30.mjs alice",
+    "test:customizations": "node --test scripts/test/validate-customizations.test.mjs"
   },
   "devDependencies": {
     "eventsource-parser": "^3.1.0"

@@ -1,7 +1,8 @@
 # Web 适配层定制清单（web/ 上游跟踪）
 
 > 机制（spec 硬约束）：web/ 以 git subtree 跟踪 agegr/pi-web 上游。**定制优先新增独立文件**（上游不存在的文件 → subtree pull 零冲突）；**必须侵入上游文件的改动**记录于此清单（文件 + 理由 + 预期冲突风险），每次上游升级前对照本清单预期冲突。
-> 维护：随适配层演进更新（ticket 04 建立）。
+> **机器可读唯一源为 [`docs/web-customizations.json`](web-customizations.json)**（校验脚本 scripts/validate-customizations.mjs 读取），本表为人读视图，修改清单请改 JSON。
+> 维护：随适配层演进更新（ticket 04 建立，ticket 06 机器化）。
 
 ## 独立新增文件（零冲突，subtree pull 自动通过）
 
@@ -9,6 +10,8 @@
 |---|---|
 | `web/lib/gateway-client.ts` | 网关会话客户端（开关式：`POWERI_GATEWAY_URL`+`POWERI_GATEWAY_TOKEN` 存在即启用）。含：GatewaySessionClient（send/onEvent/isStreaming/streamingMessage，兼容 v0.8.8 AgentEventStreamSession）、每用户认证解析（resolveWebUser：POWERI_WEB_USERS 多用户表优先 + POWERI_WEB_PASSWORD 单用户回退）、平台单一模型 GW_MODEL（poweri-gw/agent）、会话列表/历史/改名/删除 fetch、跨用户会话归属校验（isGatewaySessionOwner）。v0.8.8 重放设计：事件**透传** pi 原生形状（assistantMessageEvent 保留），由上游 agent-event-wire 统一投影 |
 | `web/lib/gateway-client.test.mjs` | 适配层单测（fake 网关：SSE 帧解析/事件透传/AgentEventStreamSession 兼容/历史映射/每用户 token） |
+| `web/lib/rpc-manager-gateway.test.mjs` | rpc-manager/session-reader 网关分支源码断言单测 |
+| `web/lib/gateway-routes-gateway.test.mjs` | 11 个路由网关分支源码断言 + fake-fetch 文件/技能接入单测 |
 
 ## 侵入上游文件（升级冲突预期）
 
@@ -51,4 +54,4 @@
 - sessions/[id]/context、auto-name、cwd/browse+validate 网关分支 → **ticket 05 已完成**
 - 插件管理（worker 无插件包体系，GET 空/POST 拒绝）→ **ticket 05 已完成**
 - 真实 pi 全链路冒烟（bridge/docker provider + 浏览器交互）→ ticket 07（local-e2e-smoke）
-- 定制清单校验脚本（结构校验 + 清单校验 + dry-run 冲突预期）→ ticket 08（adaptation-validation）
+- 定制清单校验脚本（结构校验 + 清单校验 + dry-run 冲突预期）→ **ticket 06 已完成**（scripts/validate-customizations.mjs，流程见 docs/upstream-upgrade-process.md）

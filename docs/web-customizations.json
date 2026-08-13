@@ -1,0 +1,140 @@
+{
+  "$comment": "PowerI 适配层定制清单（机器可读唯一源，docs/web-customizations.md 为人读视图）。机制 spec 硬约束：web/ 以 git subtree 跟踪上游，定制优先独立文件（零冲突），侵入上游文件的改动必须登记于此，每次上游升级前跑 scripts/validate-customizations.mjs 校验。",
+  "modules": {
+    "web": {
+      "upstream": {
+        "repo": "https://github.com/agegr/pi-web.git",
+        "version": "v0.8.8",
+        "subtreeSquash": "0a69b3130e8c09d64465b11bca539072fbf14a44",
+        "subtreeSplit": "0877bffc0c6d75a55802e77125183e3df26e44a7"
+      },
+      "independent": [
+        "lib/gateway-client.ts",
+        "lib/gateway-client.test.mjs",
+        "lib/rpc-manager-gateway.test.mjs",
+        "lib/gateway-routes-gateway.test.mjs"
+      ],
+      "intrusions": [
+        {
+          "file": "lib/rpc-manager.ts",
+          "reason": "startRpcSession 开头加网关分支（返回 GatewaySessionClient，registry 注册 + session_created 补注册）；getRpcSessionInfos 网关模式返回 []——网关模式不建进程内 AgentSession，会话由网关管理",
+          "risk": "high"
+        },
+        {
+          "file": "lib/session-reader.ts",
+          "reason": "listAllSessions 开头加网关分支（会话列表来自网关 /v1/sessions + cacheSessionPath）——网关模式不扫本地磁盘",
+          "risk": "medium"
+        },
+        {
+          "file": "app/api/agent/new/route.ts",
+          "reason": "网关分支：cwd 缺省 gatewayConfig.workspace、跳过 existsSync 校验、ensure_session 后 invalidateGatewaySessions——真实工作区在 worker PVC（/workspace），宿主无目录",
+          "risk": "low"
+        },
+        {
+          "file": "app/api/agent/[id]/route.ts",
+          "reason": "POST fast path 加跨用户隔离校验（isGatewaySessionOwner 不匹配 → 404）——单实例 web 共享 registry，防止跨用户访问会话",
+          "risk": "low"
+        },
+        {
+          "file": "app/api/agent/[id]/events/route.ts",
+          "reason": "GET fast path 加跨用户隔离校验（事件流订阅同 agent/[id]）",
+          "risk": "low"
+        },
+        {
+          "file": "app/api/sessions/[id]/route.ts",
+          "reason": "GET 网关分支（历史来自 /v1/sessions/<id>/messages，gatewayMessageToUi 渲染，上下文含 GW_MODEL）；PATCH/DELETE 网关分支（改名/删除经网关 → worker PVC；删除时 registry shutdown + 列表缓存失效）——会话文件在 worker PVC，宿主不可读写",
+          "risk": "medium"
+        },
+        {
+          "file": "app/api/models/route.ts",
+          "reason": "GET 网关分支：返回平台单一模型 poweri-gw/agent——模型由 worker PVC models.json 决定，宿主不初始化 SDK",
+          "risk": "low"
+        },
+        {
+          "file": "app/api/models-config/route.ts",
+          "reason": "GET 只读展示 worker 模型配置；PUT 网关模式 403——worker 的 models.json 由部署链管理，禁止宿主编辑",
+          "risk": "low"
+        },
+        {
+          "file": "app/api/default-cwd/route.ts",
+          "reason": "POST 网关分支：返回 gatewayConfig.workspace（/workspace）——真实工作区在 worker PVC",
+          "risk": "low"
+        },
+        {
+          "file": "proxy.ts",
+          "reason": "网关模式认证分支：POWERI_WEB_USERS/POWERI_WEB_PASSWORD 启用时 resolveWebUser 校验（多用户），上游 PI_WEB_PASSWORD 逻辑保留为回退——每用户认证（用户名→网关 token 请求级解析的前提）",
+          "risk": "low"
+        },
+        {
+          "file": "app/api/sessions/[id]/context/route.ts",
+          "reason": "GET 网关分支（历史经 gatewayHistoryContext）——v0.8.8 新增路由；网关模式无本地 entries",
+          "risk": "low"
+        },
+        {
+          "file": "app/api/sessions/[id]/auto-name/route.ts",
+          "reason": "POST 网关分支（首条用户消息派生标题，不走模型）——worker 无会话命名 API",
+          "risk": "low"
+        },
+        {
+          "file": "app/api/sessions/[id]/export/route.ts",
+          "reason": "GET 网关分支（JSONL 经网关落临时文件再导出，事后清理）——会话 JSONL 在 worker PVC",
+          "risk": "low"
+        },
+        {
+          "file": "app/api/file-index/route.ts",
+          "reason": "GET 网关分支（经网关递归列出 + q 过滤）——文件在 worker PVC",
+          "risk": "low"
+        },
+        {
+          "file": "app/api/files/[...path]/route.ts",
+          "reason": "GET 网关分支（read/meta/list；download/preview/watch 明确拒绝）——文件在 worker PVC；二进制/流式能力未接",
+          "risk": "low"
+        },
+        {
+          "file": "app/api/plugins/route.ts",
+          "reason": "GET 空列表 + POST 拒绝——worker 无插件包体系",
+          "risk": "low"
+        },
+        {
+          "file": "app/api/skills/route.ts",
+          "reason": "GET 经网关扫描；PATCH 拒绝（SKILL.md 在 worker PVC）——技能播种走 seed-skills",
+          "risk": "low"
+        },
+        {
+          "file": "app/api/cwd/browse/route.ts",
+          "reason": "网关模式拒绝（400）——工作区固定 /workspace；防宿主目录枚举（上游 browse 无授权检查）",
+          "risk": "low"
+        },
+        {
+          "file": "app/api/cwd/validate/route.ts",
+          "reason": "网关模式拒绝（400）——工作区固定 /workspace",
+          "risk": "low"
+        },
+        {
+          "file": "package.json",
+          "reason": "dependencies 增加 eventsource-parser@^3.1.1——SSE 增量解析（业界标准，Vercel AI SDK 同款）",
+          "risk": "low"
+        }
+      ]
+    },
+    "gateway": {
+      "$comment": "源仓库已冻结归档，无 subtree pull 冲突面；以下改动仅记录不校验",
+      "upstream": {
+        "repo": "https://gitlab.litta.cn/litta-power/poweri-gateway.git",
+        "version": "dev f3a9406",
+        "subtreeSquash": "3bb487bbbdb5e86e9c562111678e9c31c636aeec",
+        "subtreeSplit": "f3a94063aa36573139209bf6c9fdb24df70d5db2"
+      },
+      "changes": [
+        {
+          "file": "pods.mjs",
+          "reason": "fake provider 的 message_update 事件补 assistantMessageEvent（对齐真实 pi 事件形状）——v0.8.8 web 端 toClientAgentEvent 依赖该字段（本地 fake 验证链路）"
+        },
+        {
+          "file": "server.mjs",
+          "reason": "fake 模式 /v1/chat 落盘会话 JSONL（sessionFileHost，首行 session header，SDK 导出/校验路径可用）；修复 localSessions 缺 import sessionListEntry 的隐藏 bug；localFiles/localFile 路径语义对齐 bridge（/workspace 前缀映射、未初始化目录返回空、递归输出对齐 /workspace/... 形状）——fake 是主测试缝"
+        }
+      ]
+    }
+  }
+}
