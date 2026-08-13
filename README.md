@@ -11,7 +11,7 @@
 - **术语表**：`CONTEXT.md`
 - **调研**：`docs/research/`（容器部署 / 容器 PoC / 记忆生态包 / pi-web 深度 / pi-web 视觉多用户验证）
 - **设计**：`docs/design/08-user-memory.md`
-- **执行 ticket**：`.scratch/poweri-monorepo/issues/`（01–09：monorepo 骨架 → gateway subtree 并入 → web subtree 引入 → 适配层重放 → local 全链路验证 → gitlab 迁移；01/02 已完成）
+- **执行 ticket**：`.scratch/poweri-monorepo/issues/`（01–09：monorepo 骨架 → gateway subtree 并入 → web subtree 引入 → 适配层重放 → local 全链路验证 → gitlab 迁移；01–03 已完成）
   - 平台主线历史（已收口）：`.scratch/pi-agent-platform/issues/`（01–32）
 
 ## 仓库结构（monorepo，ADR-0010）
@@ -25,7 +25,7 @@ worker/            Worker 沙箱模块（自包含）：
 gateway/           无状态网关：认证/路由/会话续接/并发串行/流式转发(SSE+WS)/计量/计价/账单/日志
                    —— ticket 02 已并入（git subtree add，squash；源 poweri-gateway dev f3a9406）
 web/               PowerI-Web（网关模式 UI 壳）
-                   —— ticket 03 经 git subtree 自上游 agegr/pi-web 引入，当前未就位（待 subtree 引入）
+                   —— ticket 03 已引入（git subtree add，squash；上游 agegr/pi-web v0.8.8 纯净基底，零定制）
 deploy/            平台控制面部署物：k8s/（每用户 PVC/Deployment/NodePort、NetworkPolicy、gateway 部署）+ config/（平台 pi 配置，gen-pi-config 输出）
 scripts/           根级聚合脚本：构建（build-image → worker/docker/）、配置生成（gen-pi-config）、
                    K8s 部署（gen-k8s）、metrics-server 安装、验证（verify-19/21~32）
