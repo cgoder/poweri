@@ -1,0 +1,87 @@
+# PowerI Gateway K8s 部署（自描述 manifest，独立仓库维护）
+# 由 PowerI 控制面 gen-k8s 聚合部署（注入 ${K8S_USERS} = 每用户 worker 映射；Secret 由控制面创建）
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: gateway-pvc, namespace: poweri }
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: { requests: { storage: 1Gi } }
+---
+# 按需开通（on-demand provisioning）：网关用 in-cluster SA token 调 K8s API 为新用户创建 worker
+# 权限仅限本命名空间：deployments（读/建/改）、pvc/services（读/建）、pods（只读状态）
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: poweri-gateway, namespace: poweri }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: { name: poweri-gateway, namespace: poweri }
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims", "services"]
+    verbs: ["get", "create"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: { name: poweri-gateway, namespace: poweri }
+subjects:
+  - { kind: ServiceAccount, name: poweri-gateway, namespace: poweri }
+roleRef: { kind: Role, name: poweri-gateway, apiGroup: rbac.authorization.k8s.io }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: gateway, namespace: poweri }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: poweri, role: gateway } }
+  template:
+    metadata: { labels: { app: poweri, role: gateway } }
+    spec:
+      serviceAccountName: poweri-gateway
+      containers:
+        - name: gateway
+          image: ${GATEWAY_IMAGE}
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 8080 }]
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: "1", memory: 512Mi }
+          env:
+            - { name: POWERI_GATEWAY_PORT, value: "8080" }
+            - { name: POWERI_POD_PROVIDER, value: "k8s" }
+            - { name: POWERI_K8S_USERS, value: "${K8S_USERS}" }
+            - { name: POWERI_K8S_NAMESPACE, value: "poweri" }
+            - { name: POWERI_POD_IMAGE, value: "${WORKER_IMAGE}" }
+            - { name: POWERI_AI_MODEL, value: "agent" }
+            # ECS 类环境公网域名不可解析：动态开通的 worker pod 注入 hostAliases（<ip>:<host>，如 172.16.123.89:llms.litta.cn；空则不注入）
+            - { name: POWERI_LLMS_EXTRA_HOSTS, value: "${LLMS_EXTRA_HOSTS}" }
+            # 缩容（ticket 32）：动态 worker 空闲超时 scale-to-0（分钟；缺省 30，由控制面 gen-k8s 注入）
+            - { name: POWERI_WORKER_IDLE_MINUTES, value: "${IDLE_MINUTES}" }
+            # 动态开通经 K8s API HTTPS：信任集群 CA（Node fetch 走 NODE_EXTRA_CA_CERTS）
+            - { name: NODE_EXTRA_CA_CERTS, value: "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt" }
+            - name: POWERI_GATEWAY_USERS
+              valueFrom: { secretKeyRef: { name: poweri-secrets, key: POWERI_GATEWAY_USERS } }
+            - { name: POWERI_DATA_DIR, value: "/app/gateway/data" }
+          volumeMounts: [{ name: data, mountPath: /app/gateway/data }]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: gateway-pvc }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: gateway, namespace: poweri }
+spec:
+  type: NodePort
+  selector: { app: poweri, role: gateway }
+  ports:
+    - { port: 8080, targetPort: 8080, nodePort: 31080 }

@@ -1,0 +1,19 @@
+# PowerI Gateway 镜像：无状态网关层（认证/路由/计量/续接）
+# 仅依赖 ws；多阶段：依赖层用 package.json 锁版本，运行时层只拷代码（不含 test/node_modules/bun.lock）
+# 构建（上下文=本仓库根）：docker build -f Dockerfile.gateway -t poweri-gateway:local .
+
+FROM node:24-bookworm-slim AS deps
+COPY package.json /tmp/gw/package.json
+RUN cd /tmp/gw && npm install --omit=dev --ignore-scripts --no-audit --no-fund
+
+FROM node:24-bookworm-slim
+COPY --from=deps /tmp/gw/node_modules /app/gateway/node_modules
+COPY *.mjs /app/gateway/
+
+RUN mkdir -p /app/gateway/data && chown -R node:node /app/gateway
+USER node
+WORKDIR /app/gateway
+ENV NODE_ENV=production
+ENV POWERI_DATA_DIR=/app/gateway/data
+EXPOSE 8080
+CMD ["node", "server.mjs"]
