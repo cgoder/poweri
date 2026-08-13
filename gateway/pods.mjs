@@ -121,7 +121,8 @@ export function fakePodStream(userId, sessionId, message) {
     yield { type: "message_start", message: { role: "assistant" } };
     if (FAKE_DELAY > 0) await sleepAbortable(FAKE_DELAY);
     if (aborted) { yield { type: "agent_settled" }; return; } // 提前停止：回合中断但会话状态完整
-    yield { type: "message_update", message: { role: "assistant", content } };
+    // message_update 对齐真实 pi 事件形状（含 assistantMessageEvent 增量；v0.8.8 web 端 toClientAgentEvent 依赖）
+    yield { type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: reply, partial: { role: "assistant" } }, message: { role: "assistant", content } };
     yield { type: "message_end", message: { role: "assistant", content, usage: FAKE_USAGE } };
     yield { type: "turn_end" };
     yield { type: "agent_end" };

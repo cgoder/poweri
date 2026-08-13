@@ -13,14 +13,14 @@
 //   POWERI_GATEWAY_PORT / POWERI_GATEWAY_USERS("alice:token-a;bob:token-b") / POWERI_POD_PROVIDER
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, statSync, appendFileSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync, appendFileSync, unlinkSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { WebSocketServer } from "ws";
 import { getLastSession, newSessionId, setLastSession } from "./store.mjs";
 import { streamPod, sessionFileHost, POD_PROVIDER, fetchWorkerSessions, fetchWorkerSessionJsonl, fetchWorkerSessionRename, fetchWorkerSessionDelete, fetchWorkerFiles, fetchWorkerFile, fetchWorkerSkills, userPiDir, userWorkspaceDir } from "./pods.mjs";
 import { withLock } from "./queue.mjs";
-import { messagesFromJsonl } from "./session-parse.mjs";
+import { messagesFromJsonl, sessionListEntry } from "./session-parse.mjs";
 import { appendUsage, invoiceFor, scanUsage } from "./metering.mjs";
 import { logEvent } from "./log.mjs";
 
@@ -183,7 +183,12 @@ const server = createServer(async (req, res) => {
       const requestId = `${sessionId}-${randomUUID().slice(0, 8)}`; // traceId：贯穿 client→网关→Pod
       try {
         const { stream } = await streamPod(userId, sessionId, message, requestId);
+        // fake 测试缝：模拟真实链路的 worker 落盘（真实形态由 worker 内 pi 写会话 JSONL，网关不写）——
+        // 使 fake 模式下 /v1/sessions 列表与 /v1/sessions/<id>/messages 历史可验证（ticket 04 主测试缝）
+        const fakeSessionFile = POD_PROVIDER === "fake" ? sessionFileHost(userId, sessionId) : null;
+        if (fakeSessionFile) mkdirSync(path.dirname(fakeSessionFile), { recursive: true });
         for await (const ev of stream) {
+          if (fakeSessionFile) appendFileSync(fakeSessionFile, JSON.stringify(ev) + "\n");
           if (ev?.type === "message_end" && ev.message?.role === "assistant" && ev.message.usage) {
             usageAgg = usageAgg ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 0 };
             for (const k of ["input", "output", "cacheRead", "cacheWrite", "reasoning", "totalTokens"]) {

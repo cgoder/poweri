@@ -5,6 +5,7 @@ import { randomUUID } from "crypto";
 import { allowFileRoot } from "@/lib/file-access";
 import { invalidateSessionListCache } from "@/lib/session-reader";
 import { startRpcSession } from "@/lib/rpc-manager";
+import { gatewayConfig, invalidateGatewaySessions } from "@/lib/gateway-client"; // PowerI 网关模式（ticket 04）
 
 const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
@@ -24,7 +25,9 @@ export async function POST(req: Request) {
   let promptAccepted = false;
   try {
     const body = await req.json() as { cwd?: string; [key: string]: unknown };
-    const { cwd, ...command } = body;
+    // PowerI 网关模式：真实工作区在 worker PVC（/workspace），缺 cwd 时默认网关工作区
+    const { cwd: rawCwd, ...command } = body;
+    const cwd = gatewayConfig.enabled && !rawCwd ? gatewayConfig.workspace : rawCwd;
     commandType = typeof command.type === "string" ? command.type : undefined;
 
     if (!cwd || typeof cwd !== "string") {
@@ -35,7 +38,8 @@ export async function POST(req: Request) {
           : {}),
       }, { status: 400 });
     }
-    if (!existsSync(cwd)) {
+    // PowerI 网关模式：真实工作区在 worker PVC（/workspace），宿主壳不校验本地目录存在
+    if (!gatewayConfig.enabled && !existsSync(cwd)) {
       return NextResponse.json({
         error: `Directory does not exist: ${cwd}`,
         ...(commandType === "prompt"
@@ -73,6 +77,7 @@ export async function POST(req: Request) {
     };
 
     if (promptCommand.type === "ensure_session") {
+      invalidateGatewaySessions(); // PowerI 网关模式（ticket 04）：新会话创建后立即失效网关列表缓存
       return NextResponse.json({
         success: true,
         sessionId: realSessionId,

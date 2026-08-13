@@ -1,6 +1,7 @@
 import { createAgentEventStream } from "@/lib/agent-event-stream";
 import { resolveSessionPath } from "@/lib/session-reader";
 import { getRpcSession, startRpcSession } from "@/lib/rpc-manager";
+import { gatewayConfig, isGatewaySessionOwner, GatewaySessionClient } from "@/lib/gateway-client"; // PowerI 网关模式（ticket 04）
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,13 @@ export async function GET(
   const session = getRpcSession(id);
   let sessionPromise;
   if (session?.isAlive()) {
+    // PowerI 网关模式（ticket 04）：跨用户隔离——请求者不是会话所有者则拒绝（registry 单实例共享）
+    if (gatewayConfig.enabled) {
+      const gw = session as unknown as GatewaySessionClient;
+      if (!(await isGatewaySessionOwner(gw))) {
+        return new Response("Session not found", { status: 404 });
+      }
+    }
     sessionPromise = Promise.resolve(session);
   } else {
     const filePath = await resolveSessionPath(id);

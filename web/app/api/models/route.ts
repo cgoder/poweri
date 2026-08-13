@@ -10,6 +10,7 @@ import {
 } from "@/lib/models-cache";
 import { resolveVisibleModels, selectInitialModelScope } from "@/lib/model-scope";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
+import { gatewayConfig, GW_MODEL } from "@/lib/gateway-client"; // PowerI 网关模式（ticket 04）
 import { projectTrustReloadOptions } from "@/lib/project-trust";
 
 export const dynamic = "force-dynamic";
@@ -98,6 +99,18 @@ const EMPTY_MODELS: ModelsData = {
 };
 
 export async function GET(req: Request) {
+  // ── PowerI 网关模式（ticket 04）：模型由 worker PVC 的 models.json 决定，宿主不再初始化 SDK ──
+  if (gatewayConfig.enabled) {
+    return Response.json({
+      models: { "poweri-gw:agent": "poweri-gw/agent" },
+      modelList: [{ id: GW_MODEL.id, name: "poweri-gw/agent", provider: GW_MODEL.provider }],
+      defaultModel: { provider: GW_MODEL.provider, modelId: GW_MODEL.id },
+      thinkingLevels: { "poweri-gw:agent": ["off", "low", "medium", "high"] },
+      thinkingLevelMaps: {},
+      thinkingLevelPins: {},
+      modelScopeWarnings: [],
+    });
+  }
   const requestedCwd = new URL(req.url).searchParams.get("cwd") || process.cwd();
   const cwd = resolve(requestedCwd);
 

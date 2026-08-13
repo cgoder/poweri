@@ -11,7 +11,8 @@
 - **术语表**：`CONTEXT.md`
 - **调研**：`docs/research/`（容器部署 / 容器 PoC / 记忆生态包 / pi-web 深度 / pi-web 视觉多用户验证）
 - **设计**：`docs/design/08-user-memory.md`
-- **执行 ticket**：`.scratch/poweri-monorepo/issues/`（01–09：monorepo 骨架 → gateway subtree 并入 → web subtree 引入 → 适配层重放 → local 全链路验证 → gitlab 迁移；01–03 已完成）
+- **执行 ticket**：`.scratch/poweri-monorepo/issues/`（01–09：monorepo 骨架 → gateway subtree 并入 → web subtree 引入 → 适配层重放 → local 全链路验证 → gitlab 迁移；01–04 已完成）
+- **web 定制清单**：`docs/web-customizations.md`（侵入上游文件的改动集合，上游升级前对照）
   - 平台主线历史（已收口）：`.scratch/pi-agent-platform/issues/`（01–32）
 
 ## 仓库结构（monorepo，ADR-0010）

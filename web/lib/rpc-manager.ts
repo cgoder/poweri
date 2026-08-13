@@ -9,6 +9,7 @@ import { invalidateModelsCache } from "./models-cache";
 import { resolveVisibleModels, selectInitialModelScope } from "./model-scope";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
+import { gatewayConfig, GatewaySessionClient, gatewayTokenForRequest } from "./gateway-client"; // PowerI 网关模式（ticket 04）：开关式，配置存在即启用
 import { persistExplicitStartupPreferences } from "./startup-preferences";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
@@ -1432,6 +1433,8 @@ function runtimeMessageActivityMs(entry: SessionMessageEntry): number | undefine
  * prompt must temporarily be described from its in-memory SessionManager.
  */
 export function getRpcSessionInfos(): SessionInfo[] {
+  // ── PowerI 网关模式（ticket 04）：运行时会话由网关管理（/v1/sessions 已含），不扫描本地 registry ──
+  if (gatewayConfig.enabled) return [];
   const sessions: SessionInfo[] = [];
   for (const session of getRegistry().values()) {
     if (!session.isAlive()) continue;
@@ -1560,6 +1563,30 @@ export async function startRpcSession(
   const { toolNames, initialModel, thinkingLevel } = options;
   const registry = getRegistry();
   const locks = getLocks();
+
+  // ── PowerI 网关模式（ticket 04）：不建进程内 AgentSession，经网关驱动 worker 链 ──
+  if (gatewayConfig.enabled) {
+    const existingGw = registry.get(sessionId) as unknown as GatewaySessionClient | undefined;
+    if (existingGw?.isAlive()) return { session: existingGw as unknown as AgentSessionWrapper, realSessionId: sessionId };
+    const inflightGw = locks.get(sessionId);
+    if (inflightGw) return inflightGw;
+    const gwCwd = cwd || gatewayConfig.workspace;
+    const client = new GatewaySessionClient(gwCwd, sessionFile ? sessionId : "", await gatewayTokenForRequest());
+    client.onEvent((e) => {
+      if (e.type === "session_created" && e.sessionId) {
+        // 新会话真实 id（msbXXX）在首个 prompt 的 ready 事件后已知：补注册，供 events 路由按真实 id 查找
+        registry.set(String(e.sessionId), client as unknown as AgentSessionWrapper);
+        invalidateSessionListCache();
+      }
+    });
+    const startingGw = Promise.resolve({
+      session: client as unknown as AgentSessionWrapper,
+      realSessionId: client.sessionId || sessionId,
+    }).finally(() => locks.delete(sessionId));
+    locks.set(sessionId, startingGw);
+    registry.set(sessionId, client as unknown as AgentSessionWrapper);
+    return startingGw;
+  }
 
   const existing = registry.get(sessionId);
   if (existing?.isAlive()) return { session: existing, realSessionId: sessionId };

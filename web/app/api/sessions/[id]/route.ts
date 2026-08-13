@@ -14,12 +14,54 @@ import { sessionPathKey } from "@/lib/session-path";
 import { getRpcSession } from "@/lib/rpc-manager";
 import { projectTreeForResponse } from "@/lib/project-tree";
 import { computeSessionTotalActiveMs } from "@/lib/session-timing";
+import {
+  gatewayConfig,
+  fetchGatewaySessions,
+  fetchGatewaySessionMessages,
+  gatewayMessageToUi,
+  GW_MODEL,
+  type GatewayMessage,
+} from "@/lib/gateway-client"; // PowerI 网关模式（ticket 04）
 
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  // ── PowerI 网关模式（ticket 04）：历史来自网关 /v1/sessions/<id>/messages，不再读本地会话文件 ──
+  if (gatewayConfig.enabled) {
+    const { status, messages } = await fetchGatewaySessionMessages(id);
+    if (status === 404) return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    if (status !== 200 || !messages) return NextResponse.json({ error: `gateway messages HTTP ${status}` }, { status: 502 });
+    const entryIds: string[] = [];
+    const uiMessages = messages.map((m, i) => {
+      const mid = `gw-${i}`;
+      entryIds.push(mid);
+      return gatewayMessageToUi(m as GatewayMessage, mid, i);
+    });
+    const gwSessions = await fetchGatewaySessions();
+    const entry = gwSessions.find((s) => s.id === id);
+    const info = entry ? {
+      path: `/gateway/${id}.jsonl`,
+      id,
+      cwd: entry.cwd ?? gatewayConfig.workspace,
+      name: String(entry.name ?? ""),
+      created: String(entry.created ?? ""),
+      modified: String(entry.modified ?? ""),
+      messageCount: Number(entry.messageCount ?? uiMessages.length),
+      firstMessage: String(entry.firstMessage ?? "(no messages)"),
+      parentSessionId: undefined,
+      transient: false,
+    } : null;
+    return NextResponse.json({
+      sessionId: id,
+      filePath: `/gateway/${id}.jsonl`,
+      info,
+      leafId: entryIds.length ? entryIds[entryIds.length - 1] : undefined,
+      tree: [],
+      context: { messages: uiMessages, entryIds, thinkingLevel: "medium", model: { ...GW_MODEL } },
+    });
+  }
   try {
     const rpc = getRpcSession(id);
     const liveRpc = rpc?.isAlive() ? rpc : undefined;

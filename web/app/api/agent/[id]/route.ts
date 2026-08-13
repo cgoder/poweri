@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveSessionPath } from "@/lib/session-reader";
 import { startRpcSession, getRpcSession } from "@/lib/rpc-manager";
+import { gatewayConfig, isGatewaySessionOwner, GatewaySessionClient } from "@/lib/gateway-client"; // PowerI 网关模式（ticket 04）
 
 // POST /api/agent/[id] - Send a command to an existing session
 export async function POST(
@@ -18,6 +19,13 @@ export async function POST(
     // Fast path: already-running session
     const existing = getRpcSession(id);
     if (existing?.isAlive()) {
+      // PowerI 网关模式（ticket 04）：跨用户隔离——请求者不是会话所有者则拒绝（registry 单实例共享）
+      if (gatewayConfig.enabled) {
+        const gw = existing as unknown as GatewaySessionClient;
+        if (!(await isGatewaySessionOwner(gw))) {
+          return NextResponse.json({ error: "Session not found" }, { status: 404 });
+        }
+      }
       const result = await existing.send(body);
       promptAccepted = body.type === "prompt";
       return NextResponse.json({ success: true, data: result });
