@@ -1,10 +1,10 @@
 // verify-33：Local 全链路冒烟（主缝，ticket 07）——迁移成功的权威标准
 // 链路：web（网关模式，浏览器/curl 认证）→ gateway（docker provider）→ worker 容器（bridge → pi）→ 真实模型
-// 断言：认证 401 守卫 → 新建会话 → 流式真实回复（含工具调用可见）→ 会话续接（历史完整）→ 多用户隔离
+// 断言：认证 401 守卫 → 新建会话 → 流式真实回复（含工具调用可见）→ 会话续接（历史完整 + toolResult 持久化 + 与流式一致）→ 多用户隔离
 // 前置：docker 可用 + poweri-worker:local 镜像 + deploy/config/pi/models.json（npm run gen:pi-config 生成，需 AI 网关可达）
 // 运行：node scripts/verify-33-local-e2e.mjs
 // 端口：POWERI_SMOKE_GW_PORT 默认 18080（避开常用 8080）；POWERI_SMOKE_WEB_PORT 默认 30143（避开 30141/30142）
-// 清理：脚本结束自动 kill 自启进程；容器 --rm 自清；旧容器（同名前缀）脚本会清理
+// 清理：脚本结束自动 kill 自启进程（子进程意外退出会立刻失败并打印日志）；容器 --rm 自清，3s 后兜底 rm 残留
 import { spawn, execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -38,12 +38,22 @@ function preflight() {
 // ── 进程管理 ──
 const children = [];
 function start(cmd, args, cwd, env) {
-  const p = spawn(cmd, args, { cwd, env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"] });
+  // detached：独立进程组，清理时进程组 kill 可连带 next-server 等孙进程（否则孙进程存活继续占端口）
+  const p = spawn(cmd, args, { cwd, env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"], detached: true });
   children.push(p);
   let log = "";
   p.stdout.on("data", (d) => { log += d; });
   p.stderr.on("data", (d) => { log += d; });
-  return { p, getLog: () => log };
+  // 子进程意外退出 → 立刻失败并打印日志（避免静默等到超时；外部 daemon 占端口等场景）
+  p.on("exit", (code) => {
+    if (code !== null && code !== 0 && !shuttingDown) {
+      console.error(`  ✗ 子进程退出（${cmd} ${args.slice(0, 3).join(" ")}… code=${code}）`);
+      console.error(log.split("\n").slice(-12).map((l) => `    | ${l}`).join("\n"));
+      cleanup();
+      process.exit(1);
+    }
+  });
+  return { p };
 }
 async function waitFor(url, what, opts = {}) {
   const deadline = Date.now() + (opts.timeout ?? 60_000);
@@ -58,13 +68,20 @@ async function waitFor(url, what, opts = {}) {
   }
   throw new Error(`等待 ${what} 超时（${url}）：${last}`);
 }
+let shuttingDown = false;
 function cleanup() {
-  for (const c of children) { try { c.p.kill("SIGKILL"); } catch {} }
-  try { execFileSync("docker", ["rm", "-f", ...execFileSync("docker", ["ps", "-aq", "--filter", "name=poweri-"], { encoding: "utf8" }).trim().split("\n").filter(Boolean)], { stdio: "ignore" }); } catch {}
+  shuttingDown = true;
+  for (const c of children) {
+    try { process.kill(-c.p.pid, "SIGKILL"); } catch { try { c.p.kill("SIGKILL"); } catch {} }
+  }
+  // 容器 --rm 在进程退出后自清；sleep 等待自清，残留才兜底 rm（幂等，会顺带清掉其它遗留 poweri-* 容器）
+  setTimeout(() => {
+    try { execFileSync("docker", ["rm", "-f", ...execFileSync("docker", ["ps", "-aq", "--filter", "name=poweri-"], { encoding: "utf8" }).trim().split("\n").filter(Boolean)], { stdio: "ignore" }); } catch {}
+  }, 3000);
 }
 
-// ── SSE 流收集（读 data: 行）──
-async function collectEvents(url, req, { until, timeout = 120_000 }) {
+// ── SSE 流收集（读 data: 行；onFirst 在收到首个事件时回调，作订阅握手）──
+async function collectEvents(url, req, { until, onFirst, timeout = 120_000 }) {
   const events = [];
   const deadline = Date.now() + timeout;
   const res = await fetch(url, req);
@@ -81,16 +98,22 @@ async function collectEvents(url, req, { until, timeout = 120_000 }) {
       const frame = buf.slice(0, idx); buf = buf.slice(idx + 2);
       for (const line of frame.split("\n")) {
         if (!line.startsWith("data: ")) continue;
-        try { events.push(JSON.parse(line.slice(6))); } catch {}
+        try {
+          const ev = JSON.parse(line.slice(6));
+          events.push(ev);
+          if (onFirst && events.length === 1) onFirst();
+        } catch {}
       }
     }
     if (until(events)) break;
   }
+  await reader.cancel().catch(() => {});
   return { events, status: res.status };
 }
 
 // ── 主流程 ──
 async function main() {
+  let exitCode = 1;
   console.log(`\n=== verify-33 Local 全链路冒烟 @ web:${WEB_PORT} gw:${GW_PORT} ===`);
   preflight();
   console.log("  前置 OK（docker / 镜像 / 配置）");
@@ -125,9 +148,12 @@ async function main() {
     const tempKey = newBody.sessionId;
     if (!(newRes.status === 200 && tempKey)) { bad("4 新建会话", `${newRes.status} ${JSON.stringify(newBody).slice(0, 120)}`); return; }
     ok(`4 新建会话 → ${tempKey.slice(0, 20)}…`);
-    // 开事件流 → 发消息
-    const streamP = collectEvents(`${WEB_BASE}/api/agent/${encodeURIComponent(tempKey)}/events`, { headers: auth("alice") }, { until: (evs) => evs.some((e) => e.type === "agent_settled" || e.type === "prompt_done"), timeout: 180_000 });
-    await sleep(1500); // 等流注册（模拟页面事件订阅先于发送）
+    // 开事件流 → 等订阅握手（首个事件 connected）→ 发消息
+    let streamOpen = false;
+    const streamP = collectEvents(`${WEB_BASE}/api/agent/${encodeURIComponent(tempKey)}/events`, { headers: auth("alice") }, { until: (evs) => evs.some((e) => e.type === "agent_settled" || e.type === "prompt_done"), onFirst: () => { streamOpen = true; }, timeout: 180_000 });
+    const subDeadline = Date.now() + 20_000;
+    while (!streamOpen && Date.now() < subDeadline) await sleep(200);
+    if (!streamOpen) { bad("4 事件流订阅未建立", "20s 内未收到首个事件（connected）"); return; }
     const promptRes = await fetch(`${WEB_BASE}/api/agent/${encodeURIComponent(tempKey)}`, { method: "POST", headers: { ...auth("alice"), "Content-Type": "application/json" }, body: JSON.stringify({ type: "prompt", message: PROMPT }) });
     const promptBody = await promptRes.json();
     if (!(promptRes.status === 200 && promptBody.success)) { bad("4 发消息", `${promptRes.status} ${JSON.stringify(promptBody).slice(0, 120)}`); return; }
@@ -150,9 +176,16 @@ async function main() {
     const hist = await histRes.json();
     const msgs = hist.context?.messages ?? [];
     const hasUser = msgs.some((m) => m.role === "user" && JSON.stringify(m.content ?? "").includes("bash 工具"));
-    const hasAssistant = msgs.some((m) => m.role === "assistant" && JSON.stringify(m.content ?? "").length > 50);
+    // 真实 pi：thinking 与 text 是两条独立 assistant 消息（非同一消息双块），需合并全部 assistant 的 text 块
+    const assistantTexts = msgs.filter((m) => m.role === "assistant").flatMap((m) => m.content ?? []).filter((c) => c.type === "text").map((c) => c.text);
+    const hasAssistant = assistantTexts.some((t) => t.length > 20);
+    const hasToolResult = msgs.some((m) => m.role === "toolResult");
+    const histAssistant = assistantTexts.join("").replace(/\s+/g, "");
+    const histMatchesStream = histAssistant.length > 20 && histAssistant.includes(textDelta.replace(/\s+/g, "").slice(0, 20));
     (histRes.status === 200 && msgs.length >= 2) ? ok(`5 历史读取 ${msgs.length} 条消息（重开页面续接）`) : bad("5 历史读取", `status=${histRes.status} n=${msgs.length}`);
     hasUser && hasAssistant ? ok("5 历史内容完整（user 原文 + assistant 回复）") : bad("5 历史内容", `hasUser=${hasUser} hasAssistant=${hasAssistant}`);
+    hasToolResult ? ok("5 历史含 toolResult（工具调用输出持久化）") : bad("5 历史 toolResult", "无 toolResult 消息");
+    histMatchesStream ? ok("5 历史 assistant 文本与流式回复一致") : bad("5 历史与流式一致性", `hist=${histAssistant.slice(0, 30)}… vs stream=${textDelta.slice(0, 30)}…`);
 
     // 6. 多用户隔离
     const bobList = await (await fetch(`${WEB_BASE}/api/sessions?force=1`, { headers: auth("bob") })).json();
@@ -163,11 +196,13 @@ async function main() {
 
     console.log(`\n结果：${fail === 0 ? "PASS" : "FAIL"}（${pass} 通过 / ${fail} 失败，上限 ${TIMEOUT_MS / 1000}s 内完成）`);
     console.log("说明：本脚本为真实链路回归基准（每次迁移/升级后运行）；浏览器人工确认步骤见 docs/local-e2e-smoke.md");
-    process.exit(fail === 0 ? 0 : 1);
+    exitCode = fail === 0 ? 0 : 1;
   } finally {
+    // process.exit 会跳过 finally（Node 陷阱），故退出码先赋值、退出在函数返回后统一执行
     cleanup();
     console.log("  清理完成（进程 + 容器）");
   }
+  process.exit(exitCode);
 }
 
 main().catch((e) => { console.error(`✗ 冒烟异常：${e.message}`); cleanup(); process.exit(1); });
