@@ -27,9 +27,10 @@ const simDir = path.join(ROOT, "temp", "ci-simulate");
 mkdirSync(simDir, { recursive: true });
 
 let pass = 0, fail = 0;
-const step = (name, fn) => {
+const stepResults = {};
+const step = (name, fn, key) => {
   console.log(`\n=== stage: ${name} ===`);
-  try { fn(); pass++; console.log(`  ✓ ${name}`); }
+  try { const r = fn(); pass++; if (key) stepResults[key] = r; console.log(`  ✓ ${name}`); }
   catch (e) { fail++; console.log(`  ✗ ${name}: ${String(e).split("\n")[0].slice(0, 200)}`); }
 };
 const run = (args, opts = {}) => execFileSync(args[0], args.slice(1), { encoding: "utf8", stdio: opts.silent ? "pipe" : "inherit", ...opts });
@@ -49,12 +50,16 @@ step(`build: 三镜像 docker build（本机）→ ${TAG}`, () => {
   }
 });
 step("build: push harbor 归档（本机可达）", () => {
-  // 模拟 CI 的 harbor login/push（凭据来自 ~/.docker/config.json，脚本不落盘）
+  // 本机 docker 正式配置（~/.docker/config.json）是 WSL 残留（wincred），harbor 凭据在干净配置
+  // /tmp/pi-docker-config/config.json（DOCKER_CONFIG 指向）；CI 落地修正点：构建机 docker 正式配置放 harbor 凭据
+  const dockerCfg = process.env.DOCKER_CONFIG ?? (existsSync("/tmp/pi-docker-config/config.json") ? "/tmp/pi-docker-config" : null);
+  const pushEnv = dockerCfg ? { ...process.env, DOCKER_CONFIG: dockerCfg } : process.env;
+  if (dockerCfg) console.log(`  （DOCKER_CONFIG=${dockerCfg}：临时干净凭据；正式 CI 应将 harbor 凭据配入构建机 docker 配置）`);
   for (const m of MODULES) {
     const remote = `${REGISTRY}/${m.name}:${TAG}`;
     run(["docker", "tag", `${m.name}:${TAG}`, remote], { silent: true });
-    try { run(["docker", "push", remote], { silent: true }); console.log(`  ✓ push ${remote}`); }
-    catch (e) { console.warn(`  ⚠ push ${remote} 失败（模拟流程不阻断，节点走 ctr import 兜底）：${String(e).split("\n")[0].slice(0, 100)}`); }
+    try { run(["docker", "push", remote], { silent: true, env: pushEnv }); console.log(`  ✓ push ${remote}`); }
+    catch (e) { console.warn(`  ⚠ push ${remote} 失败（模拟流程不阻断）：${String(e).split("\n")[0].slice(0, 100)}`); }
   }
 });
 step("build: docker save ×3", () => {
@@ -64,17 +69,26 @@ step("build: docker save ×3", () => {
   console.log(`  ✓ ${simDir}/*.tar（共 ${MODULES.length} 个）`);
 });
 
-// ── 下发：scp → ctr import ──
-step("交付: scp 镜像到节点", () => {
+// ── 交付：harbor 直拉（运维已放行 ALB）或 ctr import 兜底 ──
+step("交付: 探测节点 harbor 可达性", () => {
+  const code = sshRun("curl -s -o /dev/null -w '%{http_code}' -m 10 https://harbor.litta.cn/v2/", { silent: true }).trim();
+  if (code === "401") { console.log("  ✓ harbor.litta.cn 可达（/v2/ 401 = 认证要求，registry API 正常）→ 走 harbor 直拉路径"); }
+  else { console.log(`  ⚠ harbor 不可达（HTTP ${code}）→ 走 ctr import 兜底路径`); }
+  return code;
+}, "harborProbe");
+step("交付: 镜像下发（harbor 直拉 or scp+ctr import 兜底）", () => {
+  const viaHarbor = stepResults.harborProbe === "401";
+  if (viaHarbor) {
+    // k8s imagePullPolicy 拉取：containerd 无 sim01 层 → 从 harbor 拉（真实生产路径）
+    console.log("  ✓ 无需本地下发：k8s 将直接从 harbor.litta.cn/poweri/*:sim01 拉取（deploy 阶段验证）");
+    return;
+  }
   sshRun("mkdir -p /tmp/ci-images");
   run(["scp", "-i", SSH_KEY, "-o", "StrictHostKeyChecking=no", "-o", "BatchMode=yes", "-P", SSH_PORT,
     ...MODULES.map((m) => path.join(simDir, `${m.name}.tar`)), `root@${SSH_HOST}:/tmp/ci-images/`], { silent: true });
-  console.log("  ✓ 镜像 tar 已上传节点 /tmp/ci-images/");
-});
-step("交付: 节点 ctr import 注入 k3s containerd", () => {
   const out = sshRun("for t in /tmp/ci-images/*.tar; do sudo -n ctr -n k8s.io images import $t >/dev/null 2>&1 || { echo FAIL $t; exit 1; }; done; echo IMPORT-OK", { silent: true });
   if (!out.includes("IMPORT-OK")) throw new Error(out.slice(-150));
-  console.log("  ✓ 三镜像注入 containerd（harbor 不可达兜底路径验证）");
+  console.log("  ✓ ctr import 兜底路径完成");
 });
 
 // ── deploy（节点）──

@@ -11,6 +11,7 @@ spec:
   template:
     metadata: { labels: { app: poweri, role: ui } }
     spec:
+      imagePullSecrets: [{ name: harbor-regcred }]
       containers:
         - name: poweri-web
           image: ${WEB_IMAGE}
