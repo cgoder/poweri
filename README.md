@@ -11,7 +11,7 @@
 - **术语表**：`CONTEXT.md`
 - **调研**：`docs/research/`（容器部署 / 容器 PoC / 记忆生态包 / pi-web 深度 / pi-web 视觉多用户验证）
 - **设计**：`docs/design/08-user-memory.md`
-- **执行 ticket**：`.scratch/poweri-monorepo/issues/`（01–09：monorepo 骨架 → gateway subtree 并入 → web subtree 引入 → 适配层重放 → local 全链路验证 → gitlab 迁移；01–04 已完成）
+- **执行 ticket**：`.scratch/poweri-monorepo/issues/`（01–09：monorepo 骨架 → gateway subtree 并入 → web subtree 引入 → 适配层重放 → local 全链路验证 → gitlab 迁移；01–07 已完成，08 迁移执行中）
 - **web 定制清单**：`docs/web-customizations.md`（侵入上游文件的改动集合，上游升级前对照）
   - 平台主线历史（已收口）：`.scratch/pi-agent-platform/issues/`（01–32）
 
@@ -46,6 +46,14 @@ data/              PoC 数据目录（每用户 PVC 占位，已 gitignore）
 | 进 `worker/` | `scripts/init-memory.mjs`、`scripts/seed-skills.mjs` | worker 初始化脚本：初始化 User Memory / 播种 skills，产物仅 worker 沙箱消费 |
 | 留根 | `deploy/config/` | 平台 pi 配置（gen-pi-config 输出），gateway seedUser 也消费 → 平台级 |
 | 留根 | `deploy/k8s/`、`scripts/` 其余、`docs/`、`CONTEXT.md` | 部署编排、验证脚本、平台文档 |
+
+## 仓库与协作（ticket 08，GitLab 迁移后）
+
+- **唯一 remote**：`https://gitlab.litta.cn/litta-power/poweri.git`（monorepo 单一 project，2026-08-13 已推送 dev/main）
+- **分支策略**：`dev` 日常开发；`main` 稳定基线（与 dev 同步推进）；改动经本地开发 → 全量验证（verify-33 冒烟等）→ 推送/MR 合并
+- **旧 project 归档（只读）**：`litta-power/poweri-gateway`、`litta-power/poweri-web` 代码已并入本仓库，gitlab UI 中设为只读归档（历史保留可追溯）；原 poweri 即本仓库，无需归档
+- **上游关系**：github `agegr/pi-web` 仅作 web/ 的 subtree 上游源（升级流程见 docs/upstream-upgrade-process.md），github 无部署配置；cgoder/pi-web fork 已弃用（ADR-0010）
+- **subtree 纪律**：web/ 升级只走 `git subtree pull --prefix=web`（升级前跑 scripts/validate-customizations.mjs 校验 + dry-run），禁止 subtree split 反向推送
 
 ## 本地验证（macOS + OrbStack）
 

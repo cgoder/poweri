@@ -14,6 +14,7 @@ PowerI 三模块（worker / gateway / web）合并为单一 monorepo：worker �
 2. **web 上游跟踪 = git subtree pull**：每次上游发版 `git subtree pull --prefix=web <agegr/pi-web> main`，冲突收敛到适配层。github 的 cgoder/pi-web fork 不再承担开发基地角色（仅作参考或废弃），上游源 = agegr/pi-web 官方仓库。
 3. **适配层收敛**：定制集中在网关适配层（gateway-client 等少数文件，保持开关式双模式），UI/组件层跟随上游，不做本地大改。适配层允许按需重新设计，不受旧实现约束。subtree 冲突面与适配层文件数成正比，收敛是本决策的硬约束。
 4. **gitlab 仓库迁移**：原三个 project（poweri / poweri-gateway / poweri-web）合并为一个 monorepo project；旧 project 设为只读归档（历史保留），monorepo 从当前代码状态 squash 起步。github 不做部署。
+   - **执行状态（2026-08-13，ticket 08）**：monorepo 承载于 `litta-power/poweri`（原 poweri project，worker git mv + gateway/web subtree 全量并入，dev/main 已推送）；`litta-power/poweri-gateway`、`litta-power/poweri-web` 待 gitlab UI 只读归档；github 仅承担 agegr/pi-web 上游源角色。
 5. **部署分列**：部署编排从 poweri 控制面提取，各模块（worker / gateway / web）在 monorepo 内独立镜像构建、独立部署 manifest，各自分列管理。先 local 验证，后续走内网 gitlab CI + harbor 镜像仓库部署。
 
 **权衡：** 备选方案为独立 fork 仓库 + 双 remote 双推（github 开发、gitlab 部署源）——同步成本最低，但代码库分散三处、平台文档无统一入口；用户明确目标为 monorepo。monorepo 下 subtree 是唯一同时满足"单仓库"与"上游 merge 同步"的方式；代价是 subtree 操作纪律（禁止 subtree split 反向推送、subtree pull 冲突解决）高于普通 merge，因此适配层收敛由"建议"升级为"硬约束"。
