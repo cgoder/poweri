@@ -44,8 +44,8 @@
 
 ## 已知问题 / 后续
 
-- **harbor ALB 从 k3s 节点不可达**：部署脚本依赖 ctr import 兜底；建议运维放行 ALB 来源（节点出口 IP）后走正常拉取。
+- ~~**harbor ALB 从 k3s 节点不可达**~~：已解决（2026-08-14 运维放行 ALB 来源，节点直连 32ms）。k8s 现从 harbor 直拉（imagePullSecret `harbor-regcred`，ticket 11）；ctr import 兜底保留在 ci-simulate/deploy 脚本。
 - **NodePort 公网**：30341（web）可达，31080（gateway）被安全组挡 → 内网访问或 ssh 隧道（verify-34 内置）。建议按需放行。
-- **gitlab CI 流水线**（spec out of scope 项）：本次交付手动脚本（deploy-cloud + verify-34），CI 化（构建/推送/部署/冒烟）为下一步。
+- **gitlab CI 流水线**：ticket 11 已设计 .gitlab-ci.yml（双 runner：本机构建 + 节点部署/冒烟）并经 ci-simulate 本机模拟跑通；runner 注册待用户提供 token。
 - **温池**（ADR-0004）：首次动态开通含冷启动，本次实测镜像预热后动态拉起正常；如需首请求低延迟可后续启用温池。
 - 本机 `~/.docker/config.json` 为 WSL 遗留（wincred credsStore 不可用），构建/推送需 `DOCKER_CONFIG` 指向干净配置（scripts 未内置，见 README）。

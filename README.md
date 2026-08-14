@@ -109,7 +109,12 @@ node scripts/verify-34-cloud-e2e.mjs   # 认证/会话/流式/续接/隔离 13 �
 ```
 
 环境注记：
-- **k3s 节点拉 harbor 超时**（harbor 经阿里云 ALB，节点不可达）→ deploy-cloud 依赖 ctr import 兜底（本机 save → scp → 节点 `ctr -n k8s.io images import`）；如后续 ALB 放行节点出口可去除。
+- **harbor 已通**（2026-08-14 运维放行 ALB，节点可达）：k8s 从 harbor 直拉镜像（imagePullPolicy IfNotPresent + imagePullSecret `harbor-regcred`，见 ticket 11）；ctr import 兜底保留在 ci-simulate/deploy 脚本中（harbor 再断时自动回退）。
 - NodePort 公网：30341（web）已放行；31080（gateway）未放行 → 全链路验证走 verify-34 内置 ssh 隧道。
-- 云端 Secret（poweri-secrets）与 per-user PVC 沿用既有部署，部署脚本不覆盖。
-- gitlab CI 流水线（构建→推送→部署→冒烟）为下一步，当前手动脚本已可重复执行（ticket 10）。
+- 云端 Secret（poweri-secrets、harbor-regcred）与 per-user PVC 沿用既有部署，部署脚本不覆盖。
+
+## CI pipeline（ticket 11，本机模拟已验证）
+
+双 runner 混合架构（本机构建 + 节点部署/冒烟），`.gitlab-ci.yml` 定义 test→build→deploy(manual)→smoke 四阶段；
+runner 未注册前可用 `node scripts/ci-simulate.mjs <tag>` 在本机模拟全流程（自动探测 harbor 可达性，
+不可达时走 ctr import 兜底）。详见 `.scratch/poweri-monorepo/issues/11-ci-pipeline.md`（含真实落地修正点清单）。
