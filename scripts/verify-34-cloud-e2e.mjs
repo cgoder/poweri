@@ -103,18 +103,25 @@ async function main() {
     if (!(newRes.status === 200 && tempKey)) { bad("2 新建会话", `${newRes.status} ${JSON.stringify(newBody).slice(0, 120)}`); return; }
     ok(`2 新建会话 → ${tempKey.slice(0, 20)}…`);
 
-    let streamOpen = false;
-    const streamP = collectEvents(`${WEB_BASE}/api/agent/${encodeURIComponent(tempKey)}/events`, { headers: auth("alice") }, { until: (evs) => evs.some((e) => e.type === "agent_settled" || e.type === "prompt_done"), onFirst: () => { streamOpen = true; }, timeout: 180_000 });
-    const subDeadline = Date.now() + 20_000;
-    while (!streamOpen && Date.now() < subDeadline) await sleep(200);
-    if (!streamOpen) { bad("2 事件流订阅未建立", "20s 内未收到首个事件（connected）"); return; }
-
-    const promptRes = await fetch(`${WEB_BASE}/api/agent/${encodeURIComponent(tempKey)}`, { method: "POST", headers: { ...auth("alice"), "Content-Type": "application/json" }, body: JSON.stringify({ type: "prompt", message: PROMPT }) });
-    const promptBody = await promptRes.json();
-    if (!(promptRes.status === 200 && promptBody.success)) { bad("2 发消息", `${promptRes.status} ${JSON.stringify(promptBody).slice(0, 120)}`); return; }
-    const { events } = await streamP;
-    const types = {};
-    for (const e of events) types[e.type] = (types[e.type] ?? 0) + 1;
+    // 冷启动重试（CI 实测 ticket 11：新镜像首次部署后动态 provisioning 拉镜像+pi 启动
+    // 超过 gateway 10s 连接超时 → 事件流只有 connected/session_created/prompt_done 无模型消息）
+    let events = null, types = {};
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      if (attempt > 1) { console.log(`  （冷启动重试 ${attempt - 1}/2：等 45s 后重新发送，同一会话续接）`); await sleep(45_000); }
+      let streamOpen = false;
+      const streamP = collectEvents(`${WEB_BASE}/api/agent/${encodeURIComponent(tempKey)}/events`, { headers: auth("alice") }, { until: (evs) => evs.some((e) => e.type === "agent_settled" || e.type === "prompt_done"), onFirst: () => { streamOpen = true; }, timeout: 180_000 });
+      const subDeadline = Date.now() + 20_000;
+      while (!streamOpen && Date.now() < subDeadline) await sleep(200);
+      if (!streamOpen) { bad("2 事件流订阅未建立", "20s 内未收到首个事件（connected）"); return; }
+      const promptRes = await fetch(`${WEB_BASE}/api/agent/${encodeURIComponent(tempKey)}`, { method: "POST", headers: { ...auth("alice"), "Content-Type": "application/json" }, body: JSON.stringify({ type: "prompt", message: PROMPT }) });
+      const promptBody = await promptRes.json();
+      if (!(promptRes.status === 200 && promptBody.success)) { bad("2 发消息", `${promptRes.status} ${JSON.stringify(promptBody).slice(0, 120)}`); return; }
+      events = (await streamP).events;
+      types = {};
+      for (const e of events) types[e.type] = (types[e.type] ?? 0) + 1;
+      if ((types.message_start ?? 0) > 0 || (types.message_update ?? 0) > 0) break;
+      console.log(`  ⚠ 第 ${attempt} 次请求无模型消息（动态 provisioning 冷启动？）types=${JSON.stringify(types)}`);
+    }
     const msb = events.find((e) => e.type === "session_created")?.sessionId;
     const textDelta = events.filter((e) => e.type === "message_update" && e.assistantMessageEvent?.type === "text_delta").map((e) => e.assistantMessageEvent.delta).join("");
     const toolRun = events.some((e) => e.type === "tool_execution_start" || e.type === "tool_execution_end");

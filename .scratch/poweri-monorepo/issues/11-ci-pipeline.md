@@ -72,3 +72,25 @@ imagePullSecret）。harbor 对节点不可达时期（ticket 10）的 ctr impor
 
 1. gitlab project runner token（注册 poweri-mac / poweri-k3s 两个 runner）
 2. 确认生产化构建机策略（当前方案：本机 runner，非 7x24）
+
+## 真实 CI 落地记录（2026-08-14，pipeline 7038 全绿）
+
+**双 runner 注册完成**：
+- poweri-mac（WSL，id=4）：test/build；poweri-k3s（节点，id=5）：deploy/smoke
+- 注册用 `-r`（传统流程）绕开旧 gitlab 的 verify 403；节点 gitlab 走公网入口（/etc/hosts 47.111.14.93）
+- 节点服务改为 `User=gitlab-runner` 直跑（root+su 模式 prepare 探测失败）
+
+**踩坑与修复**（真实 pipeline 验证）：
+1. **prepare environment exit 1**：gitlab-runner 19.2.2 用 `su gitlab-runner -c 'bash -l'` 探测 profile；
+   systemd 无 tty 环境下 `~/.bash_logout` 的 `clear_console` 失败（SHLVL=1 条件命中）→ bash 退出码 1。
+   修复：移除 gitlab-runner 用户的 .bash_logout（strace 定位）。
+2. **deploy-cloud 无 worker 过滤**：workers 循环未 grep `^worker-`，把 gateway/poweri-web 也 set image
+   成 worker 镜像 → worker 镜像跑 bridge+pi 在 gateway/web pod 中 mkdir EACCES CrashLoopBackOff。
+   修复：过滤 `^worker-`（云端手工恢复过一次）。
+3. **smoke 冷启动**：新镜像首次部署后动态 provisioning（拉镜像+pi 启动）> gateway 10s 连接超时 →
+   事件流无模型消息。修复：verify-34 无消息时等 45s 重试（最多 3 次，同一会话续接）。
+4. **WSL docker 残留**：CI build 的 docker login 被 ~/.docker/config.json（wincred.exe）卡死 →
+   build job 内 `DOCKER_CONFIG=$(mktemp -d)`。
+5. **gitlab 变量**：HARBOR_USER/HARBOR_PASSWORD 需配在项目级（protected 变量依赖 main 分支保护 ✓ 已配）。
+
+**当前云端**：gateway/poweri-web/worker-* 全部运行 harbor.litta.cn/poweri/*:b596e496，smoke 13/13。
