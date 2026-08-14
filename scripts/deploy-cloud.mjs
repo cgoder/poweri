@@ -106,7 +106,8 @@ if (LOCAL) {
 }
 
 // ── 3. 滚动更新静态 worker Deployment（动态开通的 worker 由 gateway env POWERI_POD_IMAGE 驱动）──
-const workers = kubectl(["-n", NS, "get", "deploy", "-o", "jsonpath={range .items[*]}{.metadata.name}{\"\\n\"}{end}"], { silent: true }).trim().split("\n").filter(Boolean);
+// 注意：必须过滤 ^worker-（ticket 11 CI 实测：不过滤会把 gateway/poweri-web 也 set 成 worker 镜像导致崩溃）
+const workers = kubectl(["-n", NS, "get", "deploy", "-o", "jsonpath={range .items[*]}{.metadata.name}{\"\\n\"}{end}"], { silent: true }).trim().split("\n").filter((n) => n.startsWith("worker-"));
 for (const w of workers) {
   kubectl(["-n", NS, "set", "image", `deploy/${w}`, `*=${REGISTRY}/poweri-worker:${TAG}`]);
   console.log(`✓ worker 镜像更新：${w} → ${REGISTRY}/poweri-worker:${TAG}`);
