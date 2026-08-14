@@ -6,9 +6,8 @@
 #   poweri-k3s  （litta-llms-gw 节点 runner，kubectl + ctr 本地）
 #                → deploy（kubectl apply + rollout）/ smoke（NodePort 本地直连）
 #
-# 镜像流转：本机构建 → push harbor（归档，HARBOR_USER/HARBOR_PASSWORD 变量）
-#          → docker save → scp 到节点 → sudo ctr -n k8s.io images import
-#          （harbor ALB 对节点不可达期间的兜底；ALB 放行后 deploy 可改正常 imagePull）
+# 镜像流转：本机构建 → push harbor（HARBOR_USER/HARBOR_PASSWORD 变量）→ k8s 从 harbor 直拉
+#          （imagePullSecret harbor-regcred + imagePullPolicy IfNotPresent；harbor 不可达时的 ctr import 兜底见 ticket 10/11 文档）
 #
 # 已知限制（生产化修正点，详见 docs/ci-plan.md）：
 #   - 本机 runner 非 7x24：CI 期间需本机在线；生产化应换常开构建机/构建集群
@@ -31,9 +30,6 @@ test:
     - cd web && npm ci --no-audit --no-fund --include=dev   # 干净依赖（lock 精确；--include=dev 防御全局 omit=dev 配置）
     - npx tsc --noEmit                              # 类型检查（抓生产构建类错误）
     - npm test                                      # web 全量单测（上游 572 + 适配层）
-  cache:
-    key: "$CI_COMMIT_REF_SLUG-web-nodemodules"
-    paths: ["web/node_modules/"]
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH
@@ -46,13 +42,8 @@ build:
     - docker build -f web/Dockerfile -t poweri-web:$IMAGE_TAG web/
     - docker build -f gateway/Dockerfile.gateway -t poweri-gateway:$IMAGE_TAG gateway/
     - docker build -f worker/docker/Dockerfile.poweri --build-arg PI_VERSION=0.83.0 -t poweri-worker:$IMAGE_TAG worker/
-    # harbor 归档（本机 harbor 可达；失败记录不阻断——节点用 ctr import 兜底）
     - docker login harbor.litta.cn -u "$HARBOR_USER" -p "$HARBOR_PASSWORD" || echo "WARN harbor login failed"
     - for m in poweri-gateway poweri-web poweri-worker; do docker tag $m:$IMAGE_TAG harbor.litta.cn/poweri/$m:$IMAGE_TAG && docker push harbor.litta.cn/poweri/$m:$IMAGE_TAG || echo "WARN push $m failed"; done
-    # 镜像下发：docker save → scp → 节点 ctr import
-    - mkdir -p /tmp/ci-images && for m in poweri-gateway poweri-web poweri-worker; do docker save -o /tmp/ci-images/$m.tar $m:$IMAGE_TAG; done
-    - scp -i "$SSH_KEY" -o StrictHostKeyChecking=no -P "$SSH_PORT" /tmp/ci-images/*.tar root@"$SSH_HOST":/tmp/ci-images/
-    - ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -p "$SSH_PORT" root@"$SSH_HOST" "for t in /tmp/ci-images/*.tar; do sudo -n ctr -n k8s.io images import \$t || exit 1; done"
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
   needs: [test]
@@ -80,5 +71,4 @@ smoke:
 
 # 需要配置的 CI/CD 变量（项目 Settings → CI/CD → Variables）：
 #   HARBOR_USER / HARBOR_PASSWORD  —— harbor.litta.cn 账号（masked）
-#   SSH_KEY                        —— 本机→节点 ssh 私钥（File 类型，deploy-key/poweri_ecs）
-#   SSH_HOST / SSH_PORT            —— 节点地址（118.178.241.158 / 10086）
+# 注：gitlab-runner 19.x 无本地 cache adapter，test job 不配置 cache（web npm ci 每次干净安装）
