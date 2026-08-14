@@ -73,7 +73,7 @@ export async function listAllSessions(options: { force?: boolean } = {}): Promis
     return gw.map((s) => {
       const info = gatewaySessionToInfo(s);
       cacheSessionPath(String(s.id), String(info.path));
-      return info as SessionInfo;
+      return info;
     });
   }
   if (options.force) invalidateSessionListCache();

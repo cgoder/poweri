@@ -1,0 +1,6 @@
+# 构建上下文排除（镜像内产物由 Dockerfile 多阶段 COPY，无需发送）
+node_modules
+.next
+.git
+*.log
+.turbo

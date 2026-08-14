@@ -6,6 +6,7 @@
 // 启用后本模块变为纯壳：会话/对话全部经网关 → PowerI Worker 链。
 import { createParser } from "eventsource-parser";
 import { createHash, timingSafeEqual } from "node:crypto";
+import type { SessionInfo } from "./types";
 
 // ── 每用户认证解析（ticket 28 定制能力；v0.8.8 上游 web-auth 仅单用户，故自包含于此）──
 // Basic 解码 + 多用户表（POWERI_WEB_USERS）优先，回退单用户（pi + POWERI_WEB_PASSWORD）
@@ -384,7 +385,7 @@ export async function fetchGatewaySessions(force = false): Promise<Array<Record<
 }
 
 /** 网关会话 → 前端 SessionInfo（session-reader 列表与 sessions/[id] info 共用，避免两处手写映射漂移） */
-export function gatewaySessionToInfo(s: Record<string, unknown>): Record<string, unknown> {
+export function gatewaySessionToInfo(s: Record<string, unknown>): SessionInfo {
   return {
     path: `/gateway/${String(s.id)}.jsonl`,
     id: String(s.id),

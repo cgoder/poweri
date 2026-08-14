@@ -168,7 +168,8 @@ async function main() {
     const textDelta = events.filter((e) => e.type === "message_update" && e.assistantMessageEvent?.type === "text_delta").map((e) => e.assistantMessageEvent.delta).join("");
     const toolRun = events.some((e) => e.type === "tool_execution_start" || e.type === "tool_execution_end");
     const gotEvents = events.some((e) => e.type === "agent_settled" || e.type === "prompt_done");
-    (msb && /^msr/.test(msb)) ? ok(`4 事件流 → session_created ${msb.slice(0, 18)}…`) : bad("4 session_created msb id", `msb=${msb}`);
+    // 网关 newSessionId = `${Date.now().toString(36)}-${uuid8}`（gateway/store.mjs）——前缀随时间变化，不能断言具体字母
+    (msb && /^[a-z0-9]{6,10}-[a-z0-9]{8}$/.test(msb)) ? ok(`4 事件流 → session_created ${msb.slice(0, 18)}…`) : bad("4 session_created msb id", `msb=${msb}`);
     gotEvents ? ok(`4 事件流完整（${JSON.stringify(types)}）`) : bad("4 事件流未收敛", `types=${JSON.stringify(types)}`);
     toolRun ? ok("4 工具调用过程可见（tool_execution_start/end）") : bad("4 工具调用事件缺失", "模型可能未触发工具；检查 POWERI_AI_MODEL 与工作区内容");
     textDelta.length > 0 ? ok(`4 流式文本 ${textDelta.length} 字符：${textDelta.slice(0, 60)}…`) : bad("4 流式文本为空", "真实模型未输出文本 delta");

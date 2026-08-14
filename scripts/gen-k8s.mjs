@@ -56,7 +56,8 @@ const GW_DIR =
 	process.env.POWERI_GATEWAY_DIR ||
 	path.resolve(import.meta.dirname, "..", "gateway");
 const WEB_DIR =
-	process.env.POWERI_WEB_DIR || "/Users/tianzhao/code/leoao/poweri-web"; // 待 ticket 04-06 适配层重放后改指 monorepo web/（UI manifest 归位）
+	process.env.POWERI_WEB_DIR ||
+	path.resolve(import.meta.dirname, "..", "web"); // ticket 10：monorepo web/ 自持 manifest（web/deploy/k8s/poweri-web.yaml）
 // 读模板 manifest 并替换占位符 ${KEY}（值来自本脚本运行时计算）
 const applyManifest = (file, vars) => {
 	const raw = readFileSync(file, "utf8");

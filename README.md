@@ -88,3 +88,28 @@ node scripts/install-metrics-server.mjs  # 幂等：阿里云镜像 + --kubelet-
 ```
 
 Worker 镜像大小构成与运行资源实测见 `worker/docker/README.md`；K8s 生产形态（NetworkPolicy、资源限额、按需开通/空闲缩容）见 `deploy/k8s/README.md`。
+
+## 云端部署闭环（ticket 10，内网 k3s + harbor）
+
+三模块镜像构建/推送 harbor → 部署到内网 k3s（litta-llms-gw）→ 云端全链路冒烟，全流程脚本化：
+
+```bash
+# 1. 构建三镜像并推送 harbor（本机；正式 tag 用日期，如 20260814）
+#    注意：本机 ~/.docker/config.json 为 WSL 遗留（wincred credsStore 不可用），需 DOCKER_CONFIG 指向干净配置
+#    （只含 harbor auths：python3 -c "..." 从 ~/.docker/config.json 提取 auths 写入 /tmp/pi-docker-config/config.json）
+DOCKER_CONFIG=/tmp/pi-docker-config docker build -f web/Dockerfile -t poweri-web:local web/
+DOCKER_CONFIG=/tmp/pi-docker-config docker build -f gateway/Dockerfile.gateway -t poweri-gateway:local gateway/
+DOCKER_CONFIG=/tmp/pi-docker-config docker build -f worker/docker/Dockerfile.poweri --build-arg PI_VERSION=0.83.0 -t poweri-worker:local worker/
+# 推送（tag 替换为当日日期）
+DOCKER_CONFIG=/tmp/pi-docker-config docker tag poweri-web:local harbor.litta.cn/poweri/poweri-web:20260814 && docker push ...
+# 2. 部署（渲染 manifest → scp → apply → 滚动更新 worker → 冒烟）
+node scripts/deploy-cloud.mjs 20260814 --smoke
+# 3. 云端全链路冒烟（ssh 隧道访问 NodePort；公网安全组未全放行）
+node scripts/verify-34-cloud-e2e.mjs   # 认证/会话/流式/续接/隔离 13 项断言
+```
+
+环境注记：
+- **k3s 节点拉 harbor 超时**（harbor 经阿里云 ALB，节点不可达）→ deploy-cloud 依赖 ctr import 兜底（本机 save → scp → 节点 `ctr -n k8s.io images import`）；如后续 ALB 放行节点出口可去除。
+- NodePort 公网：30341（web）已放行；31080（gateway）未放行 → 全链路验证走 verify-34 内置 ssh 隧道。
+- 云端 Secret（poweri-secrets）与 per-user PVC 沿用既有部署，部署脚本不覆盖。
+- gitlab CI 流水线（构建→推送→部署→冒烟）为下一步，当前手动脚本已可重复执行（ticket 10）。
