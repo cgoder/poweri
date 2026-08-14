@@ -42,6 +42,7 @@ build:
     - docker build -f web/Dockerfile -t poweri-web:$IMAGE_TAG web/
     - docker build -f gateway/Dockerfile.gateway -t poweri-gateway:$IMAGE_TAG gateway/
     - docker build -f worker/docker/Dockerfile.poweri --build-arg PI_VERSION=0.83.0 -t poweri-worker:$IMAGE_TAG worker/
+    - export DOCKER_CONFIG=$(mktemp -d)   # 干净凭据目录：WSL 残留 ~/.docker/config.json 的 credsStore=wincred.exe 使 docker login 必失败
     - docker login harbor.litta.cn -u "$HARBOR_USER" -p "$HARBOR_PASSWORD" || echo "WARN harbor login failed"
     - for m in poweri-gateway poweri-web poweri-worker; do docker tag $m:$IMAGE_TAG harbor.litta.cn/poweri/$m:$IMAGE_TAG && docker push harbor.litta.cn/poweri/$m:$IMAGE_TAG || echo "WARN push $m failed"; done
   rules:
