@@ -1,0 +1,84 @@
+# PowerI monorepo CI（ticket 11）
+#
+# 架构（经 ci-simulate 模拟验证）：双 runner 混合
+#   poweri-mac  （本机 mac 注册的 runner，DOCKER_CONFIG 指向 harbor 干净配置）
+#                → test / build / push harbor / 镜像下发节点
+#   poweri-k3s  （litta-llms-gw 节点 runner，kubectl + ctr 本地）
+#                → deploy（kubectl apply + rollout）/ smoke（NodePort 本地直连）
+#
+# 镜像流转：本机构建 → push harbor（归档，HARBOR_USER/HARBOR_PASSWORD 变量）
+#          → docker save → scp 到节点 → sudo ctr -n k8s.io images import
+#          （harbor ALB 对节点不可达期间的兜底；ALB 放行后 deploy 可改正常 imagePull）
+#
+# 已知限制（生产化修正点，详见 docs/ci-plan.md）：
+#   - 本机 runner 非 7x24：CI 期间需本机在线；生产化应换常开构建机/构建集群
+#   - 镜像传输走 scp 直传：镜像大（web 462MB），生产化建议改 harbor 内网可达 + imagePullPolicy
+#   - next build 在构建机（mac）跑，避免 ECS 内存瓶颈
+
+stages: [test, build, deploy, smoke]
+
+variables:
+  IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
+
+# ── test：单测 + 类型检查（所有分支；web 用干净 npm ci 环境）──
+test:
+  stage: test
+  tags: [poweri-mac]
+  script:
+    - node --version
+    - cd gateway && npm test                        # gateway 单测（fake 网关链路）
+    - cd .. && npm run test:unit                    # worker memory-extension 单测
+    - cd web && npm ci --no-audit --no-fund --include=dev   # 干净依赖（lock 精确；--include=dev 防御全局 omit=dev 配置）
+    - npx tsc --noEmit                              # 类型检查（抓生产构建类错误）
+    - npm test                                      # web 全量单测（上游 572 + 适配层）
+  cache:
+    key: "$CI_COMMIT_REF_SLUG-web-nodemodules"
+    paths: ["web/node_modules/"]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+
+# ── build：三镜像构建 + harbor 归档 + 镜像下发节点（main 分支）──
+build:
+  stage: build
+  tags: [poweri-mac]
+  script:
+    - docker build -f web/Dockerfile -t poweri-web:$IMAGE_TAG web/
+    - docker build -f gateway/Dockerfile.gateway -t poweri-gateway:$IMAGE_TAG gateway/
+    - docker build -f worker/docker/Dockerfile.poweri --build-arg PI_VERSION=0.83.0 -t poweri-worker:$IMAGE_TAG worker/
+    # harbor 归档（本机 harbor 可达；失败记录不阻断——节点用 ctr import 兜底）
+    - docker login harbor.litta.cn -u "$HARBOR_USER" -p "$HARBOR_PASSWORD" || echo "WARN harbor login failed"
+    - for m in poweri-gateway poweri-web poweri-worker; do docker tag $m:$IMAGE_TAG harbor.litta.cn/poweri/$m:$IMAGE_TAG && docker push harbor.litta.cn/poweri/$m:$IMAGE_TAG || echo "WARN push $m failed"; done
+    # 镜像下发：docker save → scp → 节点 ctr import
+    - mkdir -p /tmp/ci-images && for m in poweri-gateway poweri-web poweri-worker; do docker save -o /tmp/ci-images/$m.tar $m:$IMAGE_TAG; done
+    - scp -i "$SSH_KEY" -o StrictHostKeyChecking=no -P "$SSH_PORT" /tmp/ci-images/*.tar root@"$SSH_HOST":/tmp/ci-images/
+    - ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -p "$SSH_PORT" root@"$SSH_HOST" "for t in /tmp/ci-images/*.tar; do sudo -n ctr -n k8s.io images import \$t || exit 1; done"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  needs: [test]
+
+# ── deploy：手动 gate，节点本地执行（main 分支）──
+deploy:
+  stage: deploy
+  tags: [poweri-k3s]
+  script:
+    - node scripts/deploy-cloud.mjs "$IMAGE_TAG" --local
+  when: manual
+  needs: [build]
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
+# ── smoke：云端全链路（13 断言，节点本地直连 NodePort）──
+smoke:
+  stage: smoke
+  tags: [poweri-k3s]
+  script:
+    - VERIFY_NO_TUNNEL=1 node scripts/verify-34-cloud-e2e.mjs
+  needs: [deploy]
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
+# 需要配置的 CI/CD 变量（项目 Settings → CI/CD → Variables）：
+#   HARBOR_USER / HARBOR_PASSWORD  —— harbor.litta.cn 账号（masked）
+#   SSH_KEY                        —— 本机→节点 ssh 私钥（File 类型，deploy-key/poweri_ecs）
+#   SSH_HOST / SSH_PORT            —— 节点地址（118.178.241.158 / 10086）

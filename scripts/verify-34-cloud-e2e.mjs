@@ -25,14 +25,17 @@ const bad = (m, d) => { fail++; console.log(`  ✗ ${m}${d ? ` — ${String(d).s
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const auth = (u) => ({ Authorization: `Basic ${Buffer.from(`${u}:${USERS[u].pass}`).toString("base64")}` });
 
-// ── ssh 隧道 ──
-const tunnel = spawn("ssh", [
-  "-i", SSH_KEY, "-o", "StrictHostKeyChecking=no", "-o", "ExitOnForwardFailure=yes", "-o", "ConnectTimeout=8",
-  "-N", "-p", SSH_PORT,
-  "-L", `${GW_PORT}:127.0.0.1:${GW_PORT}`, "-L", `${WEB_PORT}:127.0.0.1:${WEB_PORT}`,
-  `root@${SSH_HOST}`,
-], { stdio: "ignore" });
-process.on("exit", () => { try { tunnel.kill(); } catch {} });
+// ── ssh 隧道（VERIFY_NO_TUNNEL=1 时跳过——gitlab CI 在节点本地直接访问 NodePort）──
+let tunnel = null;
+if (process.env.VERIFY_NO_TUNNEL !== "1") {
+  tunnel = spawn("ssh", [
+    "-i", SSH_KEY, "-o", "StrictHostKeyChecking=no", "-o", "ExitOnForwardFailure=yes", "-o", "ConnectTimeout=8",
+    "-N", "-p", SSH_PORT,
+    "-L", `${GW_PORT}:127.0.0.1:${GW_PORT}`, "-L", `${WEB_PORT}:127.0.0.1:${WEB_PORT}`,
+    `root@${SSH_HOST}`,
+  ], { stdio: "ignore" });
+  process.on("exit", () => { try { tunnel.kill(); } catch {} });
+}
 
 async function waitFor(url, label, { timeout = 30_000, expect = 200 } = {}) {
   const deadline = Date.now() + timeout;
@@ -148,7 +151,7 @@ async function main() {
     console.log(`\n结果：${fail === 0 ? "PASS" : "FAIL"}（${pass} 通过 / ${fail} 失败，上限 ${TIMEOUT_MS / 1000}s 内完成）`);
     exitCode = fail === 0 ? 0 : 1;
   } finally {
-    tunnel.kill();
+    if (tunnel) tunnel.kill();
   }
   process.exit(exitCode);
 }
