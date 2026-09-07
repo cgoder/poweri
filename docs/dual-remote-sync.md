@@ -50,6 +50,7 @@ gitlab_commit=$(
   GIT_COMMITTER_NAME='田钊' GIT_COMMITTER_EMAIL='tianzhao@leoao.com' \
   git commit-tree "$tree" -p "$parent" -m 'sync(...): mirror GitHub tree'
 )
+git branch -f gitlab-main "$gitlab_commit"
 git push origin "$gitlab_commit:refs/heads/main"
 ```
 
