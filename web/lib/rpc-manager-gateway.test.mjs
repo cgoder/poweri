@@ -28,6 +28,8 @@ test("网关分支创建 GatewaySessionClient 并处理 registry/locks/session_c
   assert.match(fn, /if \(e\.type === "session_created" && e\.sessionId\)/);
   assert.match(fn, /registry\.set\(realId, client/);
   assert.match(fn, /registry\.delete\(sessionId\)/);
+  assert.match(fn, /getGatewaySessionAliases\(\)\.set\(sessionId/);
+  assert.match(source, /return getRegistry\(\)\.get\(resolveGatewaySessionId\(sessionId\)\)/);
 });
 
 test("getRpcSessionInfos 网关分支返回空（运行时会话由网关管理，不扫描本地 registry）", async () => {

@@ -1571,6 +1571,24 @@ declare global {
   var __piStartLocks: Map<string, Promise<{ session: AgentSessionWrapper; realSessionId: string }>> | undefined;
   var __piStartingSessionCwds: Map<string, number> | undefined;
   var __piRunningListeners: Set<(ids: string[]) => void> | undefined;
+  var __piGatewaySessionAliases: Map<string, { sessionId: string; expiresAt: number }> | undefined;
+}
+
+const GATEWAY_SESSION_ALIAS_TTL_MS = 5 * 60 * 1000;
+
+function getGatewaySessionAliases(): Map<string, { sessionId: string; expiresAt: number }> {
+  if (!globalThis.__piGatewaySessionAliases) globalThis.__piGatewaySessionAliases = new Map();
+  return globalThis.__piGatewaySessionAliases;
+}
+
+function resolveGatewaySessionId(sessionId: string): string {
+  const alias = getGatewaySessionAliases().get(sessionId);
+  if (!alias) return sessionId;
+  if (alias.expiresAt <= Date.now()) {
+    getGatewaySessionAliases().delete(sessionId);
+    return sessionId;
+  }
+  return alias.sessionId;
 }
 
 function getRegistry(): Map<string, AgentSessionWrapper> {
@@ -1662,7 +1680,7 @@ function trackStartingSession(cwd: string): () => void {
 }
 
 export function getRpcSession(sessionId: string): AgentSessionWrapper | undefined {
-  return getRegistry().get(sessionId);
+  return getRegistry().get(resolveGatewaySessionId(sessionId));
 }
 
 export interface SetRpcSessionToolsResult {
@@ -1901,8 +1919,11 @@ export async function startRpcSession(
 
   // ── PowerI 网关模式（ticket 04）：不建进程内 AgentSession，经网关驱动 worker 链 ──
   if (gatewayConfig.enabled) {
-    const existingGw = registry.get(sessionId) as unknown as GatewaySessionClient | undefined;
-    if (existingGw?.isAlive()) return { session: existingGw as unknown as AgentSessionWrapper, realSessionId: sessionId };
+    const existingGw = getRpcSession(sessionId) as unknown as GatewaySessionClient | undefined;
+    if (existingGw?.isAlive()) return {
+      session: existingGw as unknown as AgentSessionWrapper,
+      realSessionId: existingGw.sessionId || sessionId,
+    };
     const inflightGw = locks.get(sessionId);
     if (inflightGw) return inflightGw;
     const gwCwd = cwd || gatewayConfig.workspace;
@@ -1916,6 +1937,14 @@ export async function startRpcSession(
         const realId = String(e.sessionId);
         if (realId !== sessionId && registry.get(sessionId) === (client as unknown as AgentSessionWrapper)) {
           registry.delete(sessionId);
+          // Keep a short-lived server-side alias while the browser receives the
+          // session_created SSE event and switches its ref/SSE URL. Without it,
+          // an abort, state poll, or SSE reconnect racing that event gets a
+          // transient 404 on the provisional id.
+          getGatewaySessionAliases().set(sessionId, {
+            sessionId: realId,
+            expiresAt: Date.now() + GATEWAY_SESSION_ALIAS_TTL_MS,
+          });
         }
         registry.set(realId, client as unknown as AgentSessionWrapper);
         invalidateSessionListCache();
