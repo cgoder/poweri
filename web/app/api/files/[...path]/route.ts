@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
+import { decodeFilePathFromApi } from "@/lib/file-paths";
 import {
   getAllowedFileRoots,
   isExistingFilePathAllowed,
@@ -72,7 +73,7 @@ function getLanguage(filePath: string): string {
 }
 
 function filePathFromSegments(segments: string[]): string {
-  const joined = segments.join("/");
+  const joined = decodeFilePathFromApi(segments);
   const slashJoined = normalizeSlashes(joined);
   if (isWindowsAbsolutePath(slashJoined)) return slashJoined;
   return "/" + joined.replace(/^\/+/, "");
@@ -103,13 +104,22 @@ async function getUploadDirectory(segments: string[]): Promise<
 
   // A browsable directory can be a symlink. Resolve both sides before writes
   // so a symlink inside an allowed root cannot redirect uploads outside it.
-  const realDirectory = fs.realpathSync(directory);
+  // Network filesystems (e.g. \\wsl$) may not support realpath; the lexical
+  // check above has already authorized the directory, so fall back to it.
+  let realDirectory: string;
+  try {
+    realDirectory = fs.realpathSync(directory);
+  } catch {
+    realDirectory = directory;
+  }
   const realRoots = new Set<string>();
   for (const root of allowedRoots) {
     try {
       realRoots.add(fs.realpathSync(root));
     } catch {
-      // Ignore stale session roots that no longer exist.
+      // Keep the lexical form so an unresolvable root does not shrink the
+      // allowed set (see isExistingPathWithinRoots).
+      realRoots.add(root);
     }
   }
   if (!isFilePathAllowed(realDirectory, realRoots)) {
@@ -298,12 +308,23 @@ function getContentDisposition(filePath: string, asDownload = false): string {
 }
 
 function streamFile(filePath: string, stat: fs.Stats, contentType: string, rangeHeader: string | null, asDownload = false): Response {
-  const headers = {
+  const headers: Record<string, string> = {
     "Content-Type": contentType,
     "Cache-Control": "no-cache",
     "Accept-Ranges": "bytes",
     "Content-Disposition": getContentDisposition(filePath, asDownload),
+    "X-Content-Type-Options": "nosniff",
   };
+  // SVG is the only preview type a browser executes as a document. A
+  // repo-controlled SVG navigated to directly (for example through a link in
+  // a transcript) would otherwise run script in the Pi Web origin, where it
+  // can call any /api route. These headers only affect document rendering;
+  // <img> preview embedding ignores them.
+  if (contentType === "image/svg+xml") {
+    headers["Content-Security-Policy"] =
+      "default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
+    headers["Referrer-Policy"] = "no-referrer";
+  }
 
   if (!rangeHeader) {
     return new Response(createFileBodyStream(filePath), {

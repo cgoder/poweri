@@ -1,0 +1,579 @@
+/**
+ * PowerI 产品层：使用统计面板样式。
+ *
+ * 从 ct-jyjntc fork 的 app/globals.css「Usage stats」段移植，作用域收在
+ * .poweri-usage 下避免与基础层样式冲突。适配：
+ * - 目标仓库无 --radius-md/--radius-xs/--destructive 变量 → 用字面值 + 面板内
+ *   私有 --poweri-destructive（跟随 html.dark 切换）；
+ * - ct 的 settings-segmented / chrome-btn / btn-ghost / btn-compact（settings
+ *   页专用）→ 面板私有 .poweri-segmented / .poweri-refresh-btn；
+ * - settings-section-title / SettingsGroup 卡片 → .poweri-usage-section*。
+ * 其余图表样式（热力图 / 趋势条 / 环形图 / 模型列表）逐行照搬 ct。
+ */
+
+.poweri-usage {
+  container-type: inline-size;
+  container-name: poweri-usage;
+  --poweri-destructive: #dc2626;
+
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 16px 22px;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--bg-panel);
+  color: var(--text);
+}
+/* 子项保持自然高度：内容超高时容器滚动，而非被 flex 压缩变扁 */
+.poweri-usage > * { flex-shrink: 0; }
+html.dark .poweri-usage {
+  --poweri-destructive: #f87171;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────── */
+.poweri-usage .usage-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.poweri-usage .usage-header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.poweri-usage .poweri-usage-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.poweri-usage .usage-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.poweri-usage .usage-header-status {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* 7/30 天分段控件（替代 ct 的 settings-segmented + chrome-btn） */
+.poweri-usage .poweri-segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-subtle);
+}
+.poweri-usage .poweri-segmented button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1;
+  padding: 5px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.poweri-usage .poweri-segmented button:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.poweri-usage .poweri-segmented button.is-active {
+  background: var(--bg-selected);
+  color: var(--text);
+  font-weight: 600;
+}
+.poweri-usage .poweri-segmented button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* 幽灵小按钮（刷新 / 重试） */
+.poweri-usage .poweri-refresh-btn {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1;
+  padding: 5px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.poweri-usage .poweri-refresh-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.poweri-usage .poweri-refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ── 顶部聚合卡 ─────────────────────────────────────────────────────── */
+.poweri-usage .usage-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+/* 布局跟随面板容器宽度（活动栏面板窄 / 全屏页宽），而非视口。
+   聚合卡是"数字+标签"的紧凑单元，窄面板 2 列即可，无需每项整行；
+   仅极窄时兜底 1 列。 */
+@container poweri-usage (max-width: 640px) {
+  .poweri-usage .usage-stat-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@container poweri-usage (max-width: 280px) {
+  .poweri-usage .usage-stat-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.poweri-usage .usage-stat-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+.poweri-usage .usage-stat-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.2;
+}
+.poweri-usage .usage-stat-value {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.poweri-usage .usage-stat-sub-inline {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── 区块卡片（替代 ct 的 SettingsGroup） ───────────────────────────── */
+.poweri-usage .poweri-usage-section {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.poweri-usage .poweri-usage-section-title {
+  padding: 12px 14px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.poweri-usage .usage-card-body {
+  padding: 12px 14px 14px;
+}
+
+/* ── 活跃热力图 ─────────────────────────────────────────────────────── */
+.poweri-usage .usage-heatmap-scroll {
+  overflow-x: auto;
+  padding: 2px 0 4px;
+}
+.poweri-usage .usage-heatmap {
+  display: flex;
+  gap: 3px;
+  width: 100%;
+}
+.poweri-usage .usage-heatmap-week {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.poweri-usage .usage-heatmap-cell {
+  width: 100%;
+  aspect-ratio: 1;
+  height: auto;
+  border-radius: 3px;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+}
+.poweri-usage .usage-heatmap-cell.is-empty {
+  background: transparent;
+  border-color: transparent;
+}
+.poweri-usage .usage-heatmap-legend {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.poweri-usage .usage-heatmap-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+  box-sizing: border-box;
+}
+
+/* ── 按天 Token 趋势（纯 CSS 堆叠条） ───────────────────────────────── */
+.poweri-usage .usage-trend-chart {
+  padding-top: 2px;
+}
+.poweri-usage .usage-trend-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 120px; /* 与组件 TREND_TRACK_PX 保持一致 */
+}
+.poweri-usage .usage-trend-bars.is-week {
+  gap: 10px;
+}
+.poweri-usage .usage-trend-col {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+}
+.poweri-usage .usage-trend-bar {
+  /* Cap bar width so few-day ranges (7d) show bars, not full-width slabs. */
+  width: 100%;
+  max-width: 48px;
+  display: flex;
+  /* column-reverse: first DOM child renders at the baseline, so the legend's
+     top-ranked series forms the bar base. */
+  flex-direction: column-reverse;
+  justify-content: flex-start;
+  /* Round the bar's top corners as one shape, clipping whatever segment ends
+     up on top — keeps the arc constant even when the top segment is tiny. */
+  border-radius: 3px 3px 0 0;
+  overflow: hidden;
+}
+.poweri-usage .usage-trend-seg {
+  flex-shrink: 0;
+  min-height: 2px;
+}
+.poweri-usage .usage-trend-labels {
+  display: flex;
+  margin-top: 6px;
+  /* Match .usage-trend-bars gaps so label cells align exactly with columns. */
+  gap: 3px;
+}
+.poweri-usage .usage-trend-labels.is-week {
+  gap: 10px;
+}
+.poweri-usage .usage-trend-label {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-size: 10px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.poweri-usage .usage-series-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 10px;
+}
+.poweri-usage .usage-series-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 0;
+}
+.poweri-usage .usage-series-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.poweri-usage .usage-series-name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 模型占比（SVG 环形图 + 列表） ──────────────────────────────────── */
+.poweri-usage .usage-model-split {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.poweri-usage .usage-donut {
+  flex-shrink: 0;
+}
+.poweri-usage .usage-model-list {
+  flex: 1;
+  min-width: 220px;
+}
+.poweri-usage .usage-model-row {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+  font-size: 12px;
+}
+.poweri-usage .usage-model-row:last-child {
+  border-bottom: none;
+}
+.poweri-usage .usage-model-name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.poweri-usage .usage-model-tokens {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.poweri-usage .usage-model-share {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  width: 40px;
+  text-align: right;
+  flex-shrink: 0;
+  font-size: 11px;
+}
+
+/* ── 空态 / 加载 / 错误 ─────────────────────────────────────────────── */
+.poweri-usage .usage-state {
+  padding: 28px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+.poweri-usage .usage-state-text {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+.poweri-usage .usage-state-text.is-error {
+  color: var(--poweri-destructive);
+}
+
+/* ── 统计面板（F6）── */
+.poweri-stats-panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  container-type: inline-size;
+  container-name: poweri-stats;
+}
+.poweri-stats-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 10px 0;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+.poweri-stats-tab {
+  padding: 5px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  border-radius: 6px 6px 0 0;
+  transition: color 0.12s, background 0.12s;
+}
+.poweri-stats-tab:hover { color: var(--text); background: var(--bg-hover); }
+.poweri-stats-tab-on {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+/* 历史会话列表（可视化摘要） */
+.poweri-sess-scroll { flex: 1; overflow-y: auto; padding: 8px 10px 12px; }
+.poweri-hint { font-size: 11px; color: var(--text-dim); margin: 4px 2px 8px; }
+.poweri-hint-err { color: var(--poweri-destructive, #dc2626); }
+.poweri-sess-item {
+  width: 100%;
+  display: block;
+  text-align: left;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  color: var(--text);
+  transition: border-color 0.12s, background 0.12s;
+}
+.poweri-sess-item:hover { border-color: var(--accent); background: var(--bg-hover); }
+.poweri-sess-item-on { border-color: var(--accent); }
+.poweri-sess-top { display: flex; align-items: baseline; gap: 8px; }
+.poweri-sess-name { flex: 1; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.poweri-sess-tokens { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+.poweri-sess-meta { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+.poweri-sess-bar-track { height: 3px; background: var(--bg-hover); border-radius: 2px; margin-top: 5px; overflow: hidden; }
+.poweri-sess-bar { height: 100%; background: var(--accent); opacity: 0.7; border-radius: 2px; }
+.poweri-sess-detail {
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  padding: 10px;
+  margin: -6px 0 6px;
+  background: var(--bg);
+}
+
+/* 详情层：会话信息（上）+ 消息/Token 圆环并排（下） */
+.poweri-stats-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.poweri-stats-donut-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+/* （旧三栏 grid 保留给未来全屏宽布局复用） */
+.poweri-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+@container poweri-stats (max-width: 900px) {
+  .poweri-stats-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@container poweri-stats (max-width: 620px) {
+  .poweri-stats-grid { grid-template-columns: 1fr; }
+}
+.poweri-stats-sec { min-width: 0; }
+.poweri-stats-title { font-size: 11px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+.poweri-stats-row {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 10px;
+  row-gap: 2px;
+  margin-bottom: 2px;
+  font-size: 11px;
+}
+.poweri-stats-label { color: var(--text-dim); white-space: nowrap; }
+.poweri-stats-value {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.poweri-stats-value-plain { font-family: inherit; }
+.poweri-donut-wrap { display: flex; align-items: center; gap: 10px; }
+.poweri-donut-list { flex: 1; min-width: 0; }
+.poweri-donut-row {
+  display: grid;
+  /* 固定区域：文字列左对齐自适应，数据/比例列定宽右对齐（各行右边缘对齐） */
+  grid-template-columns: 8px minmax(0, 1fr) 80px 44px;
+  column-gap: 6px;
+  align-items: center;
+  margin-bottom: 3px;
+  font-size: 11px;
+}
+.poweri-donut-dot { width: 7px; height: 7px; border-radius: 50%; }
+.poweri-donut-label { color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.poweri-donut-value { font-family: var(--font-mono); color: var(--text); text-align: right; }
+.poweri-donut-share { color: var(--text-dim); min-width: 0; text-align: right; font-size: 10px; }
+.poweri-token-extras { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+
+/* ── 历史会话时间线（F6 定稿形态）── */
+.poweri-tl-toolbar { display: flex; align-items: center; gap: 10px; padding: 8px 10px 0; flex-shrink: 0; }
+.poweri-tl-mode { display: inline-flex; gap: 3px; background: var(--bg-hover); padding: 2px; border-radius: 7px; }
+.poweri-tl-mode-btn {
+  border: none; background: transparent; padding: 4px 12px; border-radius: 6px;
+  font-size: 12px; color: var(--text-muted); cursor: pointer;
+}
+.poweri-tl-mode-btn:hover { color: var(--text); }
+.poweri-tl-mode-on { background: var(--bg-panel); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,0.15); }
+
+.poweri-tl-day { display: flex; flex-direction: column; padding: 0 10px; }
+.poweri-tl-head {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  padding: 10px 2px 8px; margin-top: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.poweri-tl-head-label { font-size: 13px; font-weight: 700; }
+.poweri-tl-head-meta { font-size: 11px; color: var(--text-dim); }
+.poweri-tl-cost { color: var(--text-muted); }
+.poweri-tl-hit { color: var(--poweri-hit, #2e7d32); }
+
+.poweri-tl-sess { display: flex; flex-direction: column; margin-top: 3px; }
+.poweri-tl-row {
+  width: 100%; text-align: left; border: none; background: transparent;
+  padding: 7px 8px; border-radius: 8px; cursor: pointer;
+  display: flex; align-items: center; gap: 8px;
+  color: var(--text);
+}
+.poweri-tl-row:hover { background: var(--bg-hover); }
+.poweri-tl-row-on { background: var(--bg-selected); }
+.poweri-tl-time {
+  flex-shrink: 0; width: 74px; text-align: right;
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.poweri-tl-chip {
+  flex-shrink: 0; max-width: 130px;
+  font-size: 10px; color: var(--text-muted);
+  background: var(--bg-hover); border-radius: 6px; padding: 2px 7px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.poweri-tl-title {
+  flex: 1; min-width: 0;
+  font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.poweri-tl-right { flex-shrink: 0; display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-dim); }
+.poweri-tl-tokens { font-family: var(--font-mono); color: var(--text-muted); }
+.poweri-tl-count { font-size: 11px; }
+
+/* 行下全宽展开的详情区（行本身不动） */
+.poweri-tl-detail {
+  margin: 0 0 6px; padding: 10px 10px 4px;
+  max-height: 60vh; overflow-y: auto;
+  container-type: inline-size;
+  container-name: poweri-stats;
+}

@@ -38,7 +38,8 @@
 | `web/app/api/skills/route.ts` | GET 经网关扫描；PATCH 拒绝（SKILL.md 在 worker PVC） | 技能播种走 seed-skills | 低 |
 | `web/app/api/cwd/browse/route.ts` | 网关模式拒绝（400） | 工作区固定 /workspace；防宿主目录枚举（上游 browse 无授权检查） | 低 |
 | `web/app/api/cwd/validate/route.ts` | 网关模式拒绝（400） | 工作区固定 /workspace | 低 |
-| `web/package.json` | dependencies 增加 `eventsource-parser@^3.1.1` | SSE 增量解析（业界标准，Vercel AI SDK 同款） | 低（上游加同依赖时冲突易解） |
+| `web/package.json` | 吸收 PowerI web 迁移基线的运行时依赖与版本（pi 0.84.4、Next 16.3.1、`ansi_up`、`web-push` 等），并保留 `eventsource-parser` | 同时支持端侧产品能力与 Gateway SSE 事件解析 | 中 |
+| `web/package-lock.json` | 与 `web/package.json` 的 PowerI web 迁移基线同步 | 锁定端侧能力及 Gateway SSE 依赖，保证 monorepo/web 的 `npm ci` 可复现 | 中 |
 
 ## gateway/ 内改动（源仓库已冻结归档，无 pull 冲突面；仅记录）
 

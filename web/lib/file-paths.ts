@@ -5,12 +5,33 @@ export function normalizeFilePathSlashes(filePath: string): string {
   return filePath;
 }
 
+// URL marker segment for UNC prefixes (e.g. \\wsl$\Ubuntu\...). The
+// `//` prefix cannot survive a catch-all route split, so the encoder emits
+// this marker as the first segment and the files route restores `//` from it.
+const UNC_PREFIX_MARKER = "__pi_unc__";
+
 export function encodeFilePathForApi(filePath: string): string {
-  return normalizeFilePathSlashes(filePath)
+  const normalized = normalizeFilePathSlashes(filePath);
+  const isUnc = normalized.startsWith("//");
+  // filter(Boolean) would drop the empty segment a `//` UNC prefix splits
+  // into, turning \\wsl$\... into a plain relative-looking path. Emit a
+  // marker segment instead so the server restores the UNC form and the
+  // containment check matches the root.
+  const parts = normalized
+    .replace(/^\/+/, "")
     .split("/")
     .filter(Boolean)
-    .map(encodeURIComponent)
-    .join("/");
+    .map(encodeURIComponent);
+  const segments = isUnc ? [UNC_PREFIX_MARKER, ...parts] : parts;
+  return segments.join("/");
+}
+
+/** Restore the filesystem path encoded by encodeFilePathForApi. */
+export function decodeFilePathFromApi(encodedSegments: string[]): string {
+  if (encodedSegments[0] === UNC_PREFIX_MARKER) {
+    return "//" + encodedSegments.slice(1).join("/");
+  }
+  return encodedSegments.join("/");
 }
 
 export function getFileName(filePath: string): string {

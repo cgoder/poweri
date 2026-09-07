@@ -419,6 +419,31 @@ export async function fetchGatewaySessionJsonl(id: string): Promise<{ status: nu
   return { status: res.status, ...((await res.json()) as { lines?: string }) };
 }
 
+export type GatewayUsageRecord = {
+  ts?: number;
+  sessionId?: string;
+  usage?: Record<string, number | undefined> | null;
+  platform?: Record<string, number | undefined> | null;
+  ok?: boolean;
+};
+
+/** 用户自己的计量明细（Gateway 负责按 Bearer token 限定 user scope）。 */
+export async function fetchGatewayUsage(from?: number, to?: number): Promise<{
+  status: number;
+  records: GatewayUsageRecord[];
+}> {
+  const params = new URLSearchParams();
+  if (from !== undefined) params.set("from", String(from));
+  if (to !== undefined) params.set("to", String(to));
+  const query = params.toString();
+  const res = await fetch(`${gatewayConfig.baseUrl}/v1/users/me/usage${query ? `?${query}` : ""}`, {
+    headers: { Authorization: `Bearer ${await gatewayTokenForRequest()}` },
+  });
+  if (!res.ok) return { status: res.status, records: [] };
+  const body = (await res.json()) as { records?: GatewayUsageRecord[] };
+  return { status: res.status, records: body.records ?? [] };
+}
+
 // 会话改名/删除（gateway → bridge → worker PVC）
 export async function fetchGatewaySessionRename(id: string, name: string): Promise<{ status: number }> {
   const res = await fetch(`${gatewayConfig.baseUrl}/v1/sessions/${encodeURIComponent(id)}`, {

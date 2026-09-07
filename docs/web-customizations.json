@@ -112,8 +112,13 @@
         },
         {
           "file": "package.json",
-          "reason": "dependencies 增加 eventsource-parser@^3.1.1——SSE 增量解析（业界标准，Vercel AI SDK 同款）",
-          "risk": "low"
+          "reason": "吸收 PowerI web 迁移基线的运行时依赖与版本（pi 0.84.4、Next 16.3.1、ansi_up、web-push 等），并保留 eventsource-parser——同时支持端侧产品能力与 Gateway SSE 事件解析",
+          "risk": "medium"
+        },
+        {
+          "file": "package-lock.json",
+          "reason": "与 web/package.json 的 PowerI web 迁移基线同步；锁定 pi/Next/端侧能力及 Gateway SSE 依赖，保证 monorepo/web 的 npm ci 可复现",
+          "risk": "medium"
         }
       ]
     },

@@ -19,3 +19,5 @@
   **github 角色（已确认）**：web/ 纯净上游 + 适配层（find 无 Dockerfile/.yaml/.gitlab-ci/.github 部署或 CI 残留）；agegr/pi-web 仅承担 subtree 上游源（升级流程 docs/upstream-upgrade-process.md），cgoder fork 已弃用（ADR-0010）。
   **用户协助步骤（已完成，2026-08-14）**：`litta-power/poweri-gateway`、`litta-power/poweri-web` 已由用户在 gitlab web UI 设为只读归档。归档后验证：两 project 仍可读（ls-remote HEAD 可达——gateway=f3a9406 即 subtree 引入的 split commit，web=9492e028 旧 tip），历史完整保留。原 poweri project 即 monorepo 承载者，未归档。至此验收 4 项全部闭环，T08 完成。
   **协作流程**：dev 日常开发 → 本地全量验证（test + verify-33 冒烟）→ 推送 dev → MR/合并到 main；web/ 升级走 subtree pull + 校验脚本（禁止 split 反向推送）。
+
+- 2026-09-07 后续修订：本 ticket 记录的是 GitLab 单仓迁移当时的状态；在后续 web 项目归并后，`github/cgoder/poweri` 不再仅作为上游参考，而改为与 monorepo 同树的外网镜像。主开发仍在内网 GitLab，双远端配置与推送规则见 `docs/dual-remote-sync.md`。

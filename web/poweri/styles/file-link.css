@@ -1,0 +1,35 @@
+/**
+ * PowerI 产品层：文件链接样式
+ *
+ * 让文件路径链接在视觉上可区分，hover 时显示 accent 色高亮。
+ */
+
+/* 文件链接：保持 inline code 的外观，但添加链接指示 */
+.markdown-body a:has(> code.markdown-inline-code) {
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.markdown-body a:has(> code.markdown-inline-code):hover {
+  filter: brightness(1.1);
+}
+
+.markdown-body a:has(> code.markdown-inline-code):hover code.markdown-inline-code {
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-subtle));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 50%, transparent);
+  color: var(--accent);
+}
+
+/* 为文件链接添加微妙的下划线指示 */
+.markdown-body a:has(> code.markdown-inline-code)::after {
+  content: " ↗";
+  font-size: 0.8em;
+  opacity: 0.5;
+  vertical-align: super;
+}
+
+.markdown-body a:has(> code.markdown-inline-code):hover::after {
+  opacity: 1;
+  color: var(--accent);
+}

@@ -112,7 +112,32 @@ test("cwd/browse + cwd/validate 网关分支：宿主目录浏览/校验一律�
   assert.ok(validateFn.indexOf("if (gatewayConfig.enabled)") < validateFn.indexOf("statSync(normalizedCwd)"), "分支在宿主校验之前");
 });
 
-test("gateway-client 新增 fetch：文件/技能 API 接入（fake fetch）", async () => {
+test("PowerI 产品 API 受 proxy 认证覆盖，网关统计不回退宿主 session", async () => {
+  const proxy = await readRoute("../proxy.ts");
+  assert.match(proxy, /\/poweri\/:path\*/);
+  assert.match(proxy, /pathname\.startsWith\("\/poweri\/api\/"\)/);
+
+  const usage = await readRoute("../app/poweri/api/usage/route.ts");
+  const summaries = await readRoute("../app/poweri/api/session-summaries/route.ts");
+  const stats = await readRoute("../app/poweri/api/session-stats/[id]/route.ts");
+  assert.match(usage, /fetchGatewayUsage\(/);
+  assert.match(summaries, /fetchGatewayUsage\(/);
+  assert.match(stats, /fetchGatewaySessionMessages\(id\)/);
+  assert.match(stats, /if \(gatewayConfig\.enabled\) return gatewaySessionStats\(id\)/);
+  assert.doesNotMatch(usage, /getAggregate\(forceRefresh\)[\s\S]*gatewayConfig\.enabled/);
+});
+
+test("set_tools 网关模式拒绝本地 runtime 回退", async () => {
+  const src = await readRoute("../app/api/agent/[id]/route.ts");
+  const fn = src.slice(src.indexOf("export async function POST"));
+  const gatewaySetTools = fn.indexOf('body.type === "set_tools" && gatewayConfig.enabled');
+  const localSetTools = fn.indexOf('if (body.type === "set_tools") {', gatewaySetTools + 1);
+  assert.ok(gatewaySetTools >= 0, "网关 set_tools 分支存在");
+  assert.ok(localSetTools > gatewaySetTools, "网关分支先于本地工具 runtime");
+  assert.match(fn.slice(gatewaySetTools, localSetTools), /status: 501/);
+});
+
+test("gateway-client 新增 fetch：文件/技能/用户计量 API 接入（fake fetch）", async () => {
   const { createJiti } = await import("jiti");
   const jiti = createJiti(import.meta.url);
   const mod = await jiti.import("./gateway-client.ts");
@@ -125,6 +150,7 @@ test("gateway-client 新增 fetch：文件/技能 API 接入（fake fetch）", a
     if (u.includes("/v1/files")) return new Response(JSON.stringify({ files: ["/workspace/a.ts"], entries: [] }));
     if (u.includes("/v1/file")) return new Response(JSON.stringify({ content: "hello" }));
     if (u.includes("/v1/skills")) return new Response(JSON.stringify({ skills: [{ name: "tdd" }] }));
+    if (u.includes("/v1/users/me/usage")) return new Response(JSON.stringify({ records: [{ sessionId: "msb-a", ts: 1, usage: { totalTokens: 2 } }] }));
     return new Response(JSON.stringify({}), { status });
   });
   try {
@@ -134,9 +160,12 @@ test("gateway-client 新增 fetch：文件/技能 API 接入（fake fetch）", a
     assert.equal(content, "hello");
     const skills = await mod.fetchGatewaySkills();
     assert.deepEqual(skills, [{ name: "tdd" }]);
+    const usage = await mod.fetchGatewayUsage(1, 2);
+    assert.equal(usage.records[0].sessionId, "msb-a");
     assert.ok(calls.some((c) => c.includes("/v1/files?")), "files 走网关 /v1/files");
     assert.ok(calls.some((c) => c.includes("/v1/file?")), "file 走网关 /v1/file");
     assert.ok(calls.some((c) => c.includes("/v1/skills")), "skills 走网关 /v1/skills");
+    assert.ok(calls.some((c) => c.includes("/v1/users/me/usage?")), "usage 走用户作用域计量 API");
   } finally {
     globalThis.fetch = realFetch;
   }

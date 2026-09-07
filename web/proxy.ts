@@ -11,8 +11,11 @@ import {
 import { gatewayConfig, resolveWebUser } from "@/lib/gateway-client";
 
 export function proxy(request: NextRequest) {
-  const isApiRequest = request.nextUrl.pathname === "/api"
-    || request.nextUrl.pathname.startsWith("/api/");
+  const pathname = request.nextUrl.pathname;
+  const isApiRequest = pathname === "/api"
+    || pathname.startsWith("/api/")
+    || pathname === "/poweri/api"
+    || pathname.startsWith("/poweri/api/");
   const isTrustedRequest = isApiRequest
     ? isApiRequestAllowed(request)
     : isApiRequestHostAllowed(request);
@@ -59,4 +62,4 @@ export function proxy(request: NextRequest) {
   return NextResponse.next();
 }
 
-export const config = { matcher: ["/", "/api/:path*"] };
+export const config = { matcher: ["/", "/api/:path*", "/poweri", "/poweri/:path*"] };
