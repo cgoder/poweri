@@ -1,5 +1,7 @@
 Status: ready-for-agent
 
+> **范围校准**：本规格只描述 monorepo 归并、web/gateway/worker 部署分列，以及迁移期的 web subtree/upstream 来源；它不再定义 PowerI 的终局 Agent 架构、AgentClient/AgentHost 边界或业务控制面。终局架构以 ADR-0011 为准。
+
 # Spec: PowerI-Web 上游跟踪迁移（monorepo + subtree）
 
 ## Problem Statement

@@ -1,8 +1,9 @@
-# Web 适配层定制清单（web/ 上游跟踪）
+# Web 适配层定制清单（迁移期上游资产）
 
-> 机制（spec 硬约束）：web/ 以 git subtree 跟踪 agegr/pi-web 上游。**定制优先新增独立文件**（上游不存在的文件 → subtree pull 零冲突）；**必须侵入上游文件的改动**记录于此清单（文件 + 理由 + 预期冲突风险），每次上游升级前对照本清单预期冲突。
+> **适用范围**：本清单只记录迁移期 web/ UI/交互资产与 agegr/pi-web 上游之间的差异。它不定义 PowerI 的终局 AgentClient、AgentHost、gateway、worker 或 Agent Runtime 架构；终局以 [ADR-0011](adr/0011-poweri-web-agent-surface.md) 为准。
+> 迁移期仍可使用 git subtree 跟踪上游；**定制优先新增独立文件**（上游不存在的文件 → subtree pull 零冲突），**必须侵入上游文件的改动**记录于此清单（文件 + 理由 + 预期冲突风险）。当 web UI 迁移完成或继续同步不再有价值时，可以停止 subtree pull。
 > **机器可读唯一源为 [`docs/web-customizations.json`](web-customizations.json)**（校验脚本 scripts/validate-customizations.mjs 读取），本表为人读视图，修改清单请改 JSON。
-> 维护：随适配层演进更新（ticket 04 建立，ticket 06 机器化）。
+> 维护：迁移期随适配层演进更新（ticket 04 建立，ticket 06 机器化）。
 
 ## 独立新增文件（零冲突，subtree pull 自动通过）
 

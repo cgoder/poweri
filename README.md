@@ -7,7 +7,7 @@
 ## 文档索引
 
 - **Spec**：`.scratch/poweri-monorepo/spec.md`（monorepo + subtree 迁移，20 条用户故事）
-- **架构决策**：`docs/adr/`（0001~0010：per-user PVC、stdio↔WS 桥、无状态网关、温池、会话串行、计量、账单、User Memory、成熟 OSS 优先、monorepo + subtree）
+- **架构决策**：`docs/adr/`（0001~0011：per-user PVC、stdio↔WS 桥、无状态网关、温池、会话串行、计量、账单、User Memory、成熟 OSS 优先、monorepo、AgentClient/AgentHost 端云双模式）
 - **术语表**：`CONTEXT.md`
 - **调研**：`docs/research/`（容器部署 / 容器 PoC / 记忆生态包 / pi-web 深度 / pi-web 视觉多用户验证）
 - **设计**：`docs/design/08-user-memory.md`
@@ -25,8 +25,9 @@ worker/            Worker 沙箱模块（自包含）：
                    scripts/          Worker 初始化脚本（init-memory 存量记忆导入、seed-skills 播种）
 gateway/           无状态网关：认证/路由/会话续接/并发串行/流式转发(SSE+WS)/计量/计价/账单/日志
                    —— ticket 02 已并入（git subtree add，squash；源 poweri-gateway dev f3a9406）
-web/               PowerI-Web（网关模式 UI 壳）
-                   —— ticket 03 已引入（git subtree add，squash；上游 agegr/pi-web v0.8.8 纯净基底，零定制）
+web/               PowerI-Web（UI + AgentClient + 端侧 pi 三件套 Runtime 集成边界）
+                   —— 本地 C：LocalAgentClient/LocalAgentHost；云端 B：RemoteAgentClient → Gateway → Worker
+                   —— 迁移期可借用 agegr/pi-web UI/交互资产；subtree 不是终局 Runtime 或业务循环约束
 deploy/            平台控制面部署物：k8s/（每用户 PVC/Deployment/NodePort、NetworkPolicy、gateway 部署）+ config/（平台 pi 配置，gen-pi-config 输出）
 scripts/           根级聚合脚本：构建（build-image → worker/docker/）、配置生成（gen-pi-config）、
                    K8s 部署（gen-k8s）、metrics-server 安装、验证（verify-19/21~32）
@@ -49,11 +50,11 @@ data/              PoC 数据目录（每用户 PVC 占位，已 gitignore）
 
 ## 仓库与协作（ticket 08，GitLab 迁移后）
 
-- **唯一 remote**：`https://gitlab.litta.cn/litta-power/poweri.git`（monorepo 单一 project，2026-08-13 已推送 dev/main）
-- **分支策略**：`dev` 日常开发；`main` 稳定基线（与 dev 同步推进）；改动经本地开发 → 全量验证（verify-33 冒烟等）→ 推送/MR 合并
-- **旧 project 归档（只读）**：`litta-power/poweri-gateway`、`litta-power/poweri-web` 代码已并入本仓库，gitlab UI 中设为只读归档（历史保留可追溯）；原 poweri 即本仓库，无需归档
-- **上游关系**：github `agegr/pi-web` 仅作 web/ 的 subtree 上游源（升级流程见 docs/upstream-upgrade-process.md），github 无部署配置；cgoder/pi-web fork 已弃用（ADR-0010）
-- **subtree 纪律**：web/ 升级只走 `git subtree pull --prefix=web`（升级前跑 scripts/validate-customizations.mjs 校验 + dry-run），禁止 subtree split 反向推送
+- **唯一 source of truth**：本仓库 `litta-power/poweri`；web、gateway、worker 在同一仓库内按模块独立构建、测试、发布和部署
+- **分支策略**：以 monorepo 主线为基准按任务开短命分支；改动经模块测试与必要的跨模块集成验证后合并
+- **旧 web 项目处理**：`github/cgoder/poweri` 仅作为当前 web 迭代代码的迁移输入；完成一次性归并后冻结/只读，不与本仓库双向并行开发
+- **上游关系**：agegr/pi-web 只在迁移期作为 UI/交互资产来源；可按 `docs/upstream-upgrade-process.md` 同步，达到迁移目标后可停止 subtree pull
+- **架构边界**：web 的 AgentClient、gateway 的业务控制面、worker 的 CloudAgentHost/执行平面以 ADR-0011 为准；三者独立部署不等于三个独立源代码仓库
 
 ## 本地验证（macOS + OrbStack）
 

@@ -1,7 +1,12 @@
-# PowerI web/ 上游升级流程
+# PowerI web/ 上游升级流程（迁移期）
 
-> 适用：web/（git subtree 跟踪 https://github.com/agegr/pi-web）。gateway/ 源仓库已冻结归档，不参与升级。
-> 硬约束（spec）：**适配层收敛** —— 定制优先独立文件（零冲突）；侵入上游文件的改动必须登记在 [docs/web-customizations.json](web-customizations.json)，每次升级前跑校验脚本。
+> **适用范围**：本流程仅适用于迁移期仍保留的 web UI/交互上游资产，以及这些资产的 subtree 同步和适配层校验。
+>
+> **明确不适用**：本流程不适用于 PowerI AgentClient、LocalAgentHost、RemoteAgentClient，也不适用于 gateway 或 worker 的业务逻辑、业务协议、Agent Runtime、CloudAgentHost、sandbox 和部署演进。它们遵循 ADR-0011 的架构边界与各自的验证流程，不得因为上游 UI 升级而自动修改或回归。
+>
+> **退出条件**：当 web UI 迁移完成、上游资产不再是终局实现的主要来源，或继续同步的收益低于维护成本时，可以停止 subtree pull。停止后保留历史和必要的迁移记录，不需要把 subtree 机制延伸为 PowerI Agent Runtime 的长期约束。
+>
+> 硬约束（迁移期）：**适配层收敛** —— 定制优先独立文件（零冲突）；侵入上游文件的改动必须登记在 [docs/web-customizations.json](web-customizations.json)，每次升级前跑校验脚本。
 
 ## 原则
 
@@ -72,4 +77,5 @@ cd .. && npm run test:unit                         # worker 10 例
 
 - 清单（机器可读唯一源）：`docs/web-customizations.json`；人读视图：`docs/web-customizations.md`
 - 校验脚本：`scripts/validate-customizations.mjs`（单测 `scripts/test/validate-customizations.test.mjs`）
-- 决策记录：`docs/adr/0010-poweri-web-upstream-fork.md`
+- 迁移期决策记录：`docs/adr/0010-poweri-web-upstream-fork.md`
+- 终局 Agent Surface 决策：`docs/adr/0011-poweri-web-agent-surface.md`

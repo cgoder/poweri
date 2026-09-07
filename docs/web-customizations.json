@@ -1,5 +1,5 @@
 {
-  "$comment": "PowerI 适配层定制清单（机器可读唯一源，docs/web-customizations.md 为人读视图）。机制 spec 硬约束：web/ 以 git subtree 跟踪上游，定制优先独立文件（零冲突），侵入上游文件的改动必须登记于此，每次上游升级前跑 scripts/validate-customizations.mjs 校验。",
+  "$comment": "PowerI 迁移期 web 适配层定制清单（机器可读唯一源，docs/web-customizations.md 为人读视图）。仅用于仍保留的 UI/交互上游资产与 subtree 同步校验，不定义终局 AgentClient、AgentHost、gateway、worker 或 Agent Runtime 架构；终局见 docs/adr/0011-poweri-web-agent-surface.md。",
   "modules": {
     "web": {
       "upstream": {
