@@ -23,7 +23,7 @@ PowerI-Web 当前是**复制式 fork**：以 agegr/pi-web v0.8.6 为基底复制
 - **适配层收敛 = 硬约束**：定制优先新增独立文件（上游不存在的文件零冲突）；必须侵入上游文件的改动最小化并记入**定制清单**；每次上游升级前跑校验脚本（结构校验 + 清单校验 + dry-run 冲突预期）。
 - **网关模式能力重放**：在 v0.8.8 基底上按需重新设计适配层（不受旧 v0.8.6 实现约束），重放当前 poweri-web 的网关模式能力：开关式双模式（网关配置存在即启用）、每用户 token 认证、网关 API 对接（SSE 短连接 /v1/chat、WS 长连接 /v1/ws、会话历史 /v1/sessions）、模型标识收敛为平台单一模型。
 - **部署分列**：各模块目录独立镜像构建与独立部署 manifest（自描述）；先 local 全链路验证，后续内网 gitlab CI + harbor 镜像仓库部署。
-- **仓库合并与双远端**：原三个 GitLab project（poweri / poweri-gateway / poweri-web）及当前 web 迭代内容合并到 monorepo；内网 GitLab 作为主开发/CI 远端，外网 `github/cgoder/poweri` 作为同树镜像。两端按同名分支双推，GitHub 不独立开发。
+- **仓库合并与双远端**：原三个 GitLab project（poweri / poweri-gateway / poweri-web）及当前 web 迭代内容合并到 monorepo；内网 GitLab 作为主开发/CI 远端，外网 `github/cgoder/poweri` 作为同树镜像。由于 GitLab 的作者邮箱规则，两端按同名分支维护独立提交流（GitLab=`tianzhao@leoao.com`、GitHub=`gcoder@live.com`），代码树一致但 SHA 可不同，GitHub 不独立开发。
 
 ## User Stories
 
@@ -47,7 +47,7 @@ PowerI-Web 当前是**复制式 fork**：以 agegr/pi-web v0.8.6 为基底复制
 18. 作为新成员，我想从根 README / 平台文档理解 monorepo 结构与各模块职责，以便快速上手。
 19. 作为终端用户，我想迁移后继续使用相同的 Web 交互（聊天、流式输出、会话管理），以便无感知切换。
 20. 作为终端用户，我想会话历史经网关续接不丢失，以便断线重连后上下文完整。
-21. 作为维护者，我想 monorepo 的同一分支能同步推送到内网 GitLab 与外网 GitHub，以便两个远端不发生代码漂移。
+21. 作为维护者，我想 monorepo 的同一代码树能以符合各自邮箱规则的独立提交流同步到内网 GitLab 与外网 GitHub，以便两个远端不发生代码漂移。
 
 ## Implementation Decisions
 
@@ -57,7 +57,7 @@ PowerI-Web 当前是**复制式 fork**：以 agegr/pi-web v0.8.6 为基底复制
 - **定制清单机制**：一份机器可读清单记录"侵入上游文件的改动集合"（文件路径 + 改动理由 + 预期冲突风险）；校验脚本在 subtree pull 前验证：当前侵入集合 ⊆ 清单、清单无过期条目；pull 后可 dry-run 对比预期冲突。清单随适配层演进维护。
 - **网关模式配置**：沿用开关式环境变量（网关 URL / token / workspace），每用户认证沿用用户名 → token 映射 + 请求级解析；无配置时行为与上游一致（保底可回退）。
 - **部署分列**：worker / gateway / web 各目录自描述 manifest（镜像构建脚本 + K8s 配置），部署编排脚本从控制面迁移为"各目录自管 + 根级聚合脚本仅做引用"。本次交付 local 验证路径；gitlab CI + harbor 为后续迭代（结构上预留，不阻塞）。
-- **双远端同步**：GitLab 是主开发/CI 远端，GitHub 是同树镜像；`origin` fetch 指向 GitLab，并配置两个 push URL，使 `git push origin <ref>` 双推。旧 web 历史通过合并父提交保留；禁止 GitHub 独立开发或 force push。
+- **双远端同步**：GitLab 是主开发/CI 远端，GitHub 是同树镜像；两端使用独立 remote 和独立提交身份，GitLab 提交必须使用 `@leoao.com`，GitHub 提交使用 `gcoder@live.com`。首次同步在 GitLab 侧使用当前 GitHub 代码树的快照提交，避免引入不符合邮箱规则的来源历史；禁止 GitHub 独立开发或 force push。
 
 ## Testing Decisions
 

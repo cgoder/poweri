@@ -51,9 +51,9 @@ data/              PoC 数据目录（每用户 PVC 占位，已 gitignore）
 ## 仓库与协作（ticket 08，GitLab 迁移后）
 
 - **唯一开发事实源**：本仓库 `litta-power/poweri`；web、gateway、worker 在同一仓库内按模块独立构建、测试、发布和部署
-- **双远端同步**：内网 GitLab 是主开发与 CI 远端，外网 `github/cgoder/poweri` 是同一 monorepo 的同步镜像；详见 [`docs/dual-remote-sync.md`](docs/dual-remote-sync.md)
-- **分支策略**：以 monorepo 主线为基准按任务开短命分支；改动经模块测试与必要的跨模块集成验证后合并，再双推同名分支
-- **旧 web 项目处理**：`github/cgoder/poweri` 的旧 web 内容只作为一次性迁移输入；归并后不再独立开发，GitHub 仓库改为 monorepo 镜像
+- **双远端同步**：内网 GitLab 与外网 `github/cgoder/poweri` 维护同一代码树，但因邮箱规则使用独立提交身份和独立 SHA；详见 [`docs/dual-remote-sync.md`](docs/dual-remote-sync.md)
+- **分支策略**：以 monorepo 工作区为基准按任务开短命分支；改动经模块测试与必要的跨模块集成验证后，分别生成 GitHub（`gcoder`）与 GitLab（`tianzhao`）提交
+- **旧 web 项目处理**：`github/cgoder/poweri` 的旧 web 内容已归入 `web/`；GitHub 保留来源历史，GitLab 通过同树快照同步，不再在两个远端独立开发
 - **上游关系**：agegr/pi-web 只在迁移期作为 UI/交互资产来源；可按 `docs/upstream-upgrade-process.md` 同步，达到迁移目标后可停止 subtree pull
 - **架构边界**：web 的 AgentClient、gateway 的业务控制面、worker 的 CloudAgentHost/执行平面以 ADR-0011 为准；三者独立部署不等于三个独立源代码仓库
 
