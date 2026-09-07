@@ -576,7 +576,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     newSessionPromotedRef.current = true;
     const provisionalDraftKey = newSessionDraftKey;
     if (!provisionalDraftKey) return;
-    if (provisionalDraftKey !== sid) {
+    if (provisionalDraftKey !== sid && draftKeyAliasesRef.current.get(provisionalDraftKey) !== sid) {
       draftKeyAliasesRef.current.set(provisionalDraftKey, sid);
       const input = opts.chatInputRef?.current;
       if (input) input.rekeyDraft(provisionalDraftKey, sid);
@@ -701,6 +701,25 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const ensureEventsConnected = useCallback((sid: string) => (
     eventConnectionRef.current!.ensureConnected(sid)
   ), []);
+
+  const adoptGatewaySessionId = useCallback((nextId: string) => {
+    const previousId = sessionIdRef.current;
+    if (!nextId || previousId === nextId) return;
+    sessionIdRef.current = nextId;
+    if (previousId) draftKeyAliasesRef.current.set(previousId, nextId);
+
+    const provisionalDraftKey = newSessionDraftKey;
+    if (provisionalDraftKey && provisionalDraftKey !== nextId) {
+      draftKeyAliasesRef.current.set(provisionalDraftKey, nextId);
+      const input = opts.chatInputRef?.current;
+      if (input) input.rekeyDraft(provisionalDraftKey, nextId);
+      else rekeyDraft(provisionalDraftKey, nextId);
+    }
+
+    // The temporary SSE registry key is removed when session_created arrives.
+    // Reconnect by the real id so subsequent events and state loads use msb*.
+    void ensureEventsConnected(nextId);
+  }, [ensureEventsConnected, newSessionDraftKey, opts.chatInputRef]);
 
   const maintainEventsConnected = useCallback((sid: string) => {
     eventConnectionRef.current!.maintain(sid);
@@ -1269,8 +1288,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       case "extension_ui_request":
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
+      case "session_created": {
+        const nextId = typeof event.sessionId === "string" ? event.sessionId : "";
+        if (nextId) adoptGatewaySessionId(nextId);
+        break;
+      }
     }
-  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, scrollToBottom, settleUiStage]);
+  }, [addNotice, adoptGatewaySessionId, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, scrollToBottom, settleUiStage]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
@@ -1336,11 +1360,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         }
         await ensureEventsConnected(sid);
         promptRequestStarted = true;
-        await sendAgentCommand(sid, {
+        const promptResult = await sendAgentCommand<{ sessionId?: string }>(sid, {
           type: "prompt",
           message,
           ...(piImages?.length ? { images: piImages } : {}),
         });
+        if (promptResult?.sessionId) adoptGatewaySessionId(promptResult.sessionId);
+        sentSessionId = sessionIdRef.current ?? promptResult?.sessionId ?? sid;
         promoteNewSession(1, message);
       } else if (session) {
         sentSessionId = session.id;
@@ -1390,7 +1416,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, adoptGatewaySessionId, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;

@@ -26,7 +26,8 @@ test("网关分支创建 GatewaySessionClient 并处理 registry/locks/session_c
   assert.match(fn, /locks\.set\(sessionId, startingGw\)/);
   // 新会话真实 id（msbXXX）在 ready 事件后补注册，供 events 路由按真实 id 查找
   assert.match(fn, /if \(e\.type === "session_created" && e\.sessionId\)/);
-  assert.match(fn, /registry\.set\(String\(e\.sessionId\), client/);
+  assert.match(fn, /registry\.set\(realId, client/);
+  assert.match(fn, /registry\.delete\(sessionId\)/);
 });
 
 test("getRpcSessionInfos 网关分支返回空（运行时会话由网关管理，不扫描本地 registry）", async () => {

@@ -67,29 +67,54 @@ export const gatewayConfig = {
   workspace: process.env.POWERI_GATEWAY_CWD ?? "/workspace",
 };
 
-// 配置一致性提示：每用户 UI 账号存在但网关 token 映射缺失时，所有用户会解析到同一单用户 token（隔离失效）
-if (gatewayConfig.enabled && process.env.POWERI_WEB_USERS && !process.env.POWERI_GATEWAY_USERS) {
-  console.warn("[poweri] POWERI_WEB_USERS 已设置但 POWERI_GATEWAY_USERS 缺失：所有用户将解析为同一网关 token，跨用户隔离失效（ticket 04）");
-}
-
-// ticket 28：按请求认证用户解析网关 token（POWERI_GATEWAY_USERS 用户名→token）；无则回退单用户 token
+// ticket 28：按请求认证用户解析网关 token（POWERI_GATEWAY_USERS 用户名→token）。
+// 多用户配置永远 fail closed：共享 POWERI_GATEWAY_TOKEN 只能作为单用户兼容回退，
+// 不能成为 POWERI_WEB_USERS 中漏配用户的隐式凭据。
 export function gatewayTokenForUser(user: string): string {
   for (const pair of (process.env.POWERI_GATEWAY_USERS ?? "").split(";")) {
     const i = pair.indexOf(":");
-    if (i > 0 && pair.slice(0, i).trim() === user) return pair.slice(i + 1);
+    if (i > 0 && pair.slice(0, i).trim() === user) return pair.slice(i + 1).trim();
   }
   return "";
 }
+
+export class GatewayAuthError extends Error {
+  constructor(message: string, readonly status: 401 | 503) {
+    super(message);
+    this.name = "GatewayAuthError";
+  }
+}
+
 export async function gatewayTokenForRequest(): Promise<string> {
+  const webUsers = parseWebUsers();
+  const multiUserMode = Object.keys(webUsers).length > 0;
+
+  let requestUser: string | null = null;
+  let requestContextAvailable = false;
   try {
     const { headers } = await import("next/headers");
     const h = await headers();
-    const user = resolveWebUser(h.get("authorization"));
-    if (user) {
-      const t = gatewayTokenForUser(user);
-      if (t) return t;
+    requestContextAvailable = true;
+    requestUser = resolveWebUser(h.get("authorization"));
+  } catch {
+    // Non-request callers (startup/tests) are allowed only in single-user mode.
+  }
+
+  if (multiUserMode) {
+    if (!requestContextAvailable) {
+      throw new GatewayAuthError("Gateway multi-user authentication is unavailable outside a request", 503);
     }
-  } catch { /* 非请求作用域（单测等）→ 回退单用户 token */ }
+    if (!requestUser) {
+      throw new GatewayAuthError("Gateway authentication is required for multi-user mode", 401);
+    }
+    const token = gatewayTokenForUser(requestUser);
+    if (!token) {
+      throw new GatewayAuthError(`No gateway token is configured for user '${requestUser}'`, 503);
+    }
+    return token;
+  }
+
+  // Preserve POWERI_WEB_PASSWORD + POWERI_GATEWAY_TOKEN deployments.
   return gatewayConfig.token;
 }
 
@@ -108,6 +133,25 @@ export type AgentEvent = Record<string, unknown> & { type: string };
 
 /** prompt 后网关 ready 事件的等待上限（防挂起；正常链路秒级返回） */
 const PROMPT_READY_TIMEOUT_MS = 60_000;
+
+export const GATEWAY_SUPPORTED_COMMANDS = new Set([
+  "prompt", "abort", "get_state", "get_session_stats", "get_last_assistant_text",
+  "get_tools", "get_commands", "clear_queue", "ensure_session",
+]);
+
+export function isGatewayCommandSupported(type: unknown): boolean {
+  return typeof type === "string" && GATEWAY_SUPPORTED_COMMANDS.has(type);
+}
+
+export class UnsupportedGatewayCommandError extends Error {
+  readonly status = 501;
+
+  constructor(command: unknown) {
+    super(`Gateway command '${String(command)}' is not implemented`);
+    this.name = "UnsupportedGatewayCommandError";
+  }
+}
+
 
 // ── 纯函数（单测覆盖）───────────────────────────────────────────────
 
@@ -212,10 +256,10 @@ export class GatewaySessionClient {
         return [];
       case "clear_queue":
         return { steering: [], followUp: [] };
-      // chat 范围外命令（fork/navigate_tree/compact/set_session_name/bash/set_model…）→ 安全默认
-      // 全套工作区能力需网关 API 补齐（研究 §6.2）
-      default:
+      case "ensure_session":
         return null;
+      default:
+        throw new UnsupportedGatewayCommandError(command.type);
     }
   }
 
@@ -259,7 +303,7 @@ export class GatewaySessionClient {
         this.emitRunningChange();
       }
     })();
-    return ready.then(() => null);
+    return ready.then(() => ({ sessionId: this.sessionId }));
   }
 
   private resolveSessionCreated(): void {

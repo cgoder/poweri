@@ -77,6 +77,16 @@ test("files/[...path] GET 网关分支：read/meta/list 走网关，其余 type 
   assert.match(fn, /fetchGatewayFile\(gwPath\)/);
   assert.match(fn, /fetchGatewayFiles\(gwPath, false\)/);
   assert.match(fn, /网关模式不支持 type=/);
+  assert.match(fn, /网关模式不支持 type=\$\{type\}[\s\S]*status: 501/);
+});
+
+test("files/[...path] POST 网关分支：上传和 upload-check 在宿主目录解析前统一 501", async () => {
+  const src = await readRoute("../app/api/files/[...path]/route.ts");
+  const fn = src.slice(src.indexOf("export async function POST"));
+  const gw = fn.indexOf("if (gatewayConfig.enabled)");
+  assert.ok(gw >= 0);
+  assert.ok(gw < fn.indexOf("getUploadDirectory(segments)"));
+  assert.match(fn.slice(gw, gw + 250), /status: 501/);
 });
 
 test("plugins GET/POST 网关分支：空列表 / 拒绝管理", async () => {
@@ -125,6 +135,24 @@ test("PowerI 产品 API 受 proxy 认证覆盖，网关统计不回退宿主 ses
   assert.match(stats, /fetchGatewaySessionMessages\(id\)/);
   assert.match(stats, /if \(gatewayConfig\.enabled\) return gatewaySessionStats\(id\)/);
   assert.doesNotMatch(usage, /getAggregate\(forceRefresh\)[\s\S]*gatewayConfig\.enabled/);
+});
+
+test("agent/[id] GET 网关模式：未知/非 owner 会话返回 404，不读取 state", async () => {
+  const src = await readRoute("../app/api/agent/[id]/route.ts");
+  const fn = src.slice(src.indexOf("export async function GET"));
+  assert.match(fn, /if \(gatewayConfig\.enabled\)/);
+  assert.match(fn, /isGatewaySessionOwner\(gatewaySession\)/);
+  assert.match(fn, /error: "Session not found".*status: 404/s);
+  assert.ok(fn.indexOf("isGatewaySessionOwner") < fn.indexOf('session.send({ type: "get_state" })'));
+});
+
+test("agent routes：网关不支持的命令返回 501", async () => {
+  const route = await readRoute("../app/api/agent/[id]/route.ts");
+  const newRoute = await readRoute("../app/api/agent/new/route.ts");
+  assert.match(route, /isGatewayCommandSupported/);
+  assert.match(route, /status: 501/);
+  assert.match(newRoute, /isGatewayCommandSupported/);
+  assert.match(newRoute, /status: 501/);
 });
 
 test("set_tools 网关模式拒绝本地 runtime 回退", async () => {

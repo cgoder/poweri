@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveSessionPath } from "@/lib/session-reader";
 import { startRpcSession, getRpcSession, setRpcSessionTools } from "@/lib/rpc-manager";
-import { gatewayConfig, isGatewaySessionOwner, GatewaySessionClient } from "@/lib/gateway-client"; // PowerI 网关模式（ticket 04）
+import { gatewayConfig, GatewayAuthError, isGatewaySessionOwner, GatewaySessionClient, isGatewayCommandSupported } from "@/lib/gateway-client"; // PowerI 网关模式（ticket 04）
 
 // POST /api/agent/[id] - Send a command to an existing session
 export async function POST(
@@ -37,6 +37,9 @@ export async function POST(
       }
       return NextResponse.json({ error: "Tool selection is unavailable in gateway mode" }, { status: 501 });
     }
+    if (gatewayConfig.enabled && !isGatewayCommandSupported(body.type)) {
+      return NextResponse.json({ error: `Gateway command '${String(body.type)}' is not implemented` }, { status: 501 });
+    }
     if (body.type === "set_tools") {
       const filePath = existing?.sessionFile || await resolveSessionPath(id) || undefined;
       if (!existing?.isAlive() && !filePath) {
@@ -58,7 +61,11 @@ export async function POST(
       }
       const result = await existing.send(body);
       promptAccepted = body.type === "prompt";
-      return NextResponse.json({ success: true, data: result });
+      return NextResponse.json({
+        success: true,
+        data: result,
+        ...(gatewayConfig.enabled ? { sessionId: (existing as unknown as GatewaySessionClient).sessionId } : {}),
+      });
     }
 
     const filePath = await resolveSessionPath(id);
@@ -77,14 +84,18 @@ export async function POST(
     const result = await session.send(body);
     promptAccepted = body.type === "prompt";
 
-    return NextResponse.json({ success: true, data: result });
+    return NextResponse.json({
+      success: true,
+      data: result,
+      ...(gatewayConfig.enabled ? { sessionId: (session as unknown as GatewaySessionClient).sessionId } : {}),
+    });
   } catch (error) {
     return NextResponse.json({
       error: error instanceof Error ? error.message : String(error),
       ...(commandType === "prompt" && !promptAccepted
         ? { code: "prompt_rejected", accepted: false }
         : {}),
-    }, { status: 500 });
+    }, { status: error instanceof GatewayAuthError ? error.status : 500 });
   }
 }
 
@@ -96,6 +107,19 @@ export async function GET(
   const { id } = await params;
 
   try {
+    if (gatewayConfig.enabled) {
+      const session = getRpcSession(id);
+      if (!session || !session.isAlive()) {
+        return NextResponse.json({ error: "Session not found" }, { status: 404 });
+      }
+      const gatewaySession = session as unknown as GatewaySessionClient;
+      if (!(await isGatewaySessionOwner(gatewaySession))) {
+        return NextResponse.json({ error: "Session not found" }, { status: 404 });
+      }
+      const state = await session.send({ type: "get_state" });
+      return NextResponse.json({ running: true, state });
+    }
+
     const session = getRpcSession(id);
     if (!session || !session.isAlive()) {
       return NextResponse.json({ running: false });
@@ -104,6 +128,6 @@ export async function GET(
     const state = await session.send({ type: "get_state" });
     return NextResponse.json({ running: true, state });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: String(error) }, { status: error instanceof GatewayAuthError ? error.status : 500 });
   }
 }

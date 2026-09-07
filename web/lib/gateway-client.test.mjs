@@ -73,6 +73,30 @@ test("isGatewaySessionId：msb* 判定", async () => {
   assert.ok(!isGatewaySessionId("019fc0d0-a411-75a8-9633-762821708210"));
 });
 
+test("gateway client：不支持的命令不会静默成功", async () => {
+  const { GatewaySessionClient, isGatewayCommandSupported } = await loadSubject();
+  assert.equal(isGatewayCommandSupported("prompt"), true);
+  assert.equal(isGatewayCommandSupported("bash"), false);
+  const client = new GatewaySessionClient("/workspace");
+  await assert.rejects(client.send({ type: "bash", command: "id" }), /not implemented/);
+});
+
+test("gatewayTokenForRequest：多用户未配置映射时 fail closed，不回退共享 token", async () => {
+  const { gatewayTokenForRequest } = await loadSubject();
+  const prevUsers = process.env.POWERI_WEB_USERS;
+  const prevGatewayUsers = process.env.POWERI_GATEWAY_USERS;
+  process.env.POWERI_WEB_USERS = "alice:pass-a;bob:pass-b";
+  delete process.env.POWERI_GATEWAY_USERS;
+  try {
+    await assert.rejects(gatewayTokenForRequest(), /multi-user authentication/);
+  } finally {
+    if (prevUsers === undefined) delete process.env.POWERI_WEB_USERS;
+    else process.env.POWERI_WEB_USERS = prevUsers;
+    if (prevGatewayUsers === undefined) delete process.env.POWERI_GATEWAY_USERS;
+    else process.env.POWERI_GATEWAY_USERS = prevGatewayUsers;
+  }
+});
+
 test("gatewayTokenForUser：用户名→网关 token（POWERI_GATEWAY_USERS）", async () => {
   const { gatewayTokenForUser } = await loadSubject();
   const prev = process.env.POWERI_GATEWAY_USERS;

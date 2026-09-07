@@ -1909,8 +1909,15 @@ export async function startRpcSession(
     const client = new GatewaySessionClient(gwCwd, sessionFile ? sessionId : "", await gatewayTokenForRequest());
     client.onEvent((e) => {
       if (e.type === "session_created" && e.sessionId) {
-        // 新会话真实 id（msbXXX）在首个 prompt 的 ready 事件后已知：补注册，供 events 路由按真实 id 查找
-        registry.set(String(e.sessionId), client as unknown as AgentSessionWrapper);
+        // The temporary __new__ key is only a cold-start lock. Once the gateway
+        // assigns its msb* id, remove the alias before registering the real key;
+        // otherwise stale callers could keep addressing a session forever via
+        // the unowned temporary id.
+        const realId = String(e.sessionId);
+        if (realId !== sessionId && registry.get(sessionId) === (client as unknown as AgentSessionWrapper)) {
+          registry.delete(sessionId);
+        }
+        registry.set(realId, client as unknown as AgentSessionWrapper);
         invalidateSessionListCache();
       }
     });

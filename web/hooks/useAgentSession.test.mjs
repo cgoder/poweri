@@ -116,6 +116,22 @@ test("new-session promotion rekeys drafts before publishing the real session", (
   assert.match(chatWindowSource, /draftKey=\{session\?\.id \?\? newSessionDraftKey \?\? undefined\}/);
 });
 
+test("gateway session_created promotes the real id before later loads/events", () => {
+  const adoptSource = source.slice(
+    source.indexOf("const adoptGatewaySessionId"),
+    source.indexOf("const maintainEventsConnected"),
+  );
+  const eventSource = source.slice(
+    source.indexOf('case "session_created"'),
+    source.lastIndexOf("handleAgentEventRef.current"),
+  );
+  assert.match(adoptSource, /sessionIdRef\.current = nextId/);
+  assert.match(adoptSource, /draftKeyAliasesRef\.current\.set\(provisionalDraftKey, nextId\)/);
+  assert.match(adoptSource, /ensureEventsConnected\(nextId\)/);
+  assert.match(eventSource, /adoptGatewaySessionId\(nextId\)/);
+  assert.match(source, /promptResult\?\.sessionId/);
+});
+
 test("fresh sessions use the preference while persisted and live sessions restore their selection", () => {
   const preferenceSource = source.slice(
     source.indexOf("  const setToolPresetState"),

@@ -141,6 +141,9 @@ export async function POST(
   if (!isApiRequestAllowed(request)) {
     return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
   }
+  if (gatewayConfig.enabled) {
+    return NextResponse.json({ error: "File uploads are not implemented in gateway mode" }, { status: 501 });
+  }
 
   try {
     const { path: segments } = await params;
@@ -464,7 +467,7 @@ export async function GET(
           const data = await fetchGatewayFiles(gwPath, false);
           return NextResponse.json(data);
         }
-        return NextResponse.json({ error: `网关模式不支持 type=${type}` }, { status: 400 });
+        return NextResponse.json({ error: `网关模式不支持 type=${type}` }, { status: 501 });
       } catch (e) {
         return NextResponse.json({ error: String((e as Error)?.message ?? e) }, { status: 404 });
       }

@@ -5,7 +5,7 @@ import { randomUUID } from "crypto";
 import { allowFileRoot } from "@/lib/file-access";
 import { invalidateSessionListCache } from "@/lib/session-reader";
 import { startRpcSession } from "@/lib/rpc-manager";
-import { gatewayConfig, invalidateGatewaySessions } from "@/lib/gateway-client"; // PowerI 网关模式（ticket 04）
+import { gatewayConfig, GatewayAuthError, invalidateGatewaySessions, isGatewayCommandSupported } from "@/lib/gateway-client"; // PowerI 网关模式（ticket 04）
 
 const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
@@ -55,6 +55,10 @@ export async function POST(req: Request) {
     }
     const explicitThinkingLevel = parseThinkingLevel(thinkingLevel);
 
+    if (gatewayConfig.enabled && !isGatewayCommandSupported(command.type)) {
+      return NextResponse.json({ error: `Gateway command '${String(command.type)}' is not implemented` }, { status: 501 });
+    }
+
     // Must be unique per request: startRpcSession coalesces concurrent callers
     // that share a key onto one session. Date.now() (ms resolution) collides for
     // requests in the same millisecond, merging two new sessions into one.
@@ -92,9 +96,11 @@ export async function POST(req: Request) {
     const result = await session.send(promptCommand);
     promptAccepted = promptCommand.type === "prompt";
 
+    const finalSessionId = gatewayConfig.enabled ? session.sessionId || realSessionId : realSessionId;
+    if (gatewayConfig.enabled) invalidateGatewaySessions();
     return NextResponse.json({
       success: true,
-      sessionId: realSessionId,
+      sessionId: finalSessionId,
       data: result,
       model: state.model
         ? { provider: state.model.provider, modelId: state.model.id }
@@ -107,6 +113,6 @@ export async function POST(req: Request) {
       ...(commandType === "prompt" && !promptAccepted
         ? { code: "prompt_rejected", accepted: false }
         : {}),
-    }, { status: 500 });
+    }, { status: error instanceof GatewayAuthError ? error.status : 500 });
   }
 }
