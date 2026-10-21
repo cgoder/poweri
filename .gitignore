@@ -19,6 +19,9 @@ auth.json
 coverage/
 .tmp/
 
+# 过程产物与一次性工件（scratch，用完即弃）
+temp/
+
 # PoC 用户数据（per-user PVC 占位）
 data/
 
