@@ -1,0 +1,97 @@
+{
+  "$comment": "PowerI 产品层替换件登记表：poweri/ 下与上游同名同路径的文件会遮蔽上游实现。/ 路由仍走上游 components/，/poweri 路由走 poweri/ 替换件。新增替换件必须在同一提交内登记。",
+  "generatedAt": "2026-10-21",
+  "source": "docs/web-customizations.json + git diff 8142036..HEAD",
+  "entries": [
+    {
+      "replacement": "poweri/README.md",
+      "upstream": "README.md",
+      "usedBy": "app/poweri/page.tsx → poweri/layout/AppShell.tsx 渲染链",
+      "upstreamIntruded": false,
+      "upstreamChurn": 0,
+      "risk": "low",
+      "note": "上游同名文件未被侵入，替换件与上游隔离"
+    },
+    {
+      "replacement": "poweri/components/ChatInput.tsx",
+      "upstream": "components/ChatInput.tsx",
+      "usedBy": "app/poweri/page.tsx → poweri/layout/AppShell.tsx 渲染链",
+      "upstreamIntruded": true,
+      "upstreamChurn": 402,
+      "risk": "high",
+      "note": "上游同名文件同时被侵入（poweri-product），两条路径并存：/ 走上游文件，/poweri 走本替换件"
+    },
+    {
+      "replacement": "poweri/components/ChatWindow.tsx",
+      "upstream": "components/ChatWindow.tsx",
+      "usedBy": "app/poweri/page.tsx → poweri/layout/AppShell.tsx 渲染链",
+      "upstreamIntruded": true,
+      "upstreamChurn": 195,
+      "risk": "medium",
+      "note": "上游同名文件同时被侵入（poweri-product），两条路径并存：/ 走上游文件，/poweri 走本替换件"
+    },
+    {
+      "replacement": "poweri/components/FileExplorer.tsx",
+      "upstream": "components/FileExplorer.tsx",
+      "usedBy": "app/poweri/page.tsx → poweri/layout/AppShell.tsx 渲染链",
+      "upstreamIntruded": true,
+      "upstreamChurn": 154,
+      "risk": "medium",
+      "note": "上游同名文件同时被侵入（poweri-product），两条路径并存：/ 走上游文件，/poweri 走本替换件"
+    },
+    {
+      "replacement": "poweri/components/FileViewer.tsx",
+      "upstream": "components/FileViewer.tsx",
+      "usedBy": "app/poweri/page.tsx → poweri/layout/AppShell.tsx 渲染链",
+      "upstreamIntruded": true,
+      "upstreamChurn": 37,
+      "risk": "low",
+      "note": "上游同名文件同时被侵入（poweri-product），两条路径并存：/ 走上游文件，/poweri 走本替换件"
+    },
+    {
+      "replacement": "poweri/components/MarkdownBody.tsx",
+      "upstream": "components/MarkdownBody.tsx",
+      "usedBy": "app/poweri/page.tsx → poweri/layout/AppShell.tsx 渲染链",
+      "upstreamIntruded": false,
+      "upstreamChurn": 0,
+      "risk": "low",
+      "note": "上游同名文件未被侵入，替换件与上游隔离"
+    },
+    {
+      "replacement": "poweri/components/MermaidBlock.tsx",
+      "upstream": "components/MermaidBlock.tsx",
+      "usedBy": "app/poweri/page.tsx → poweri/layout/AppShell.tsx 渲染链",
+      "upstreamIntruded": false,
+      "upstreamChurn": 0,
+      "risk": "low",
+      "note": "上游同名文件未被侵入，替换件与上游隔离"
+    },
+    {
+      "replacement": "poweri/components/MessageView.tsx",
+      "upstream": "components/MessageView.tsx",
+      "usedBy": "app/poweri/page.tsx → poweri/layout/AppShell.tsx 渲染链",
+      "upstreamIntruded": true,
+      "upstreamChurn": 182,
+      "risk": "medium",
+      "note": "上游同名文件同时被侵入（poweri-product），两条路径并存：/ 走上游文件，/poweri 走本替换件"
+    },
+    {
+      "replacement": "poweri/components/SessionSidebar.tsx",
+      "upstream": "components/SessionSidebar.tsx",
+      "usedBy": "app/poweri/page.tsx → poweri/layout/AppShell.tsx 渲染链",
+      "upstreamIntruded": true,
+      "upstreamChurn": 469,
+      "risk": "high",
+      "note": "上游同名文件同时被侵入（poweri-product），两条路径并存：/ 走上游文件，/poweri 走本替换件"
+    },
+    {
+      "replacement": "poweri/components/TabBar.tsx",
+      "upstream": "components/TabBar.tsx",
+      "usedBy": "app/poweri/page.tsx → poweri/layout/AppShell.tsx 渲染链",
+      "upstreamIntruded": false,
+      "upstreamChurn": 0,
+      "risk": "low",
+      "note": "上游同名文件未被侵入，替换件与上游隔离"
+    }
+  ]
+}
