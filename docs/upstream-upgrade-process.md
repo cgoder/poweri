@@ -35,6 +35,14 @@ node scripts/validate-customizations.mjs --dry-run <FETCH_HEAD 或新 commit>
 #     [collision]         上游新增文件与独立文件同名 → pull 覆盖本地，需合并内容
 #   记录输出作为升级对照基准。
 
+# 3b. 通用做法：先把上游版本吃进本地对象库（subtree pull 也吃同一个 ref）
+#     上游源 = https://github.com/agegr/pi-web.git（npm 包 @agegr/pi-web 是同一发布物）
+git remote add upstream-piweb https://github.com/agegr/pi-web.git   # 一次性
+git fetch upstream-piweb --tags
+node scripts/validate-customizations.mjs --dry-run <tag>            # 如 v0.12.2
+# npm 侧可先查版本与发布时间（判断是否值得跨级）：
+npm view @agegr/pi-web time --json
+
 # 4. 执行 subtree pull（squash 保持历史整洁；合并不成功时 git merge --abort 退出）
 git subtree pull --prefix=web <上游 clone 或 URL> <同一 ref> --squash
 
@@ -63,6 +71,19 @@ cd .. && npm run test:unit                         # worker 10 例
 - `lib/rpc-manager.ts`（risk: high）与 `lib/session-reader.ts`（risk: medium）是升级热点：上游频繁演进，冲突块短、易解，但 auto-merge 后必须跑 `web/lib/rpc-manager-gateway.test.mjs`、`web/lib/gateway-routes-gateway.test.mjs`（源码断言，分支缺失即红）。
 - 上游新增同名文件与独立文件冲突（collision）：优先保留两者语义——独立文件是适配层，上游文件是产品功能；无法共存时独立文件改名并更新引用（引用面 = gateway-client 导出 + 路由 import）。
 - 升级后新功能默认**不接网关分支**（除非 ticket 明确要求）；v0.8.8 新增路由如 context/state 已在 ticket 05 覆盖，后续新增路由以"网关模式可用性"为准逐项评估。
+- **替换件遮蔽**：`poweri/` 下与上游同名同路径的文件是替换件（登记在 `web/docs/desktop/replacements.json`）。上游同名文件升级后，替换件不会自动跟随；须对照决定是否同步上游改动到替换件（这是 `poweri-product` 类侵入的主要成本来源）。
+
+## 清单类别（2026-10 补齐）
+
+`docs/web-customizations.json` 的每条侵入都有 `category`，决定升级时的处理策略：
+
+| 类别 | 升级处理 |
+|---|---|
+| `gateway-adapter` | 保留分支在前，合并上游演进；跑 `gateway-client` / `gateway-routes-gateway` / `rpc-manager-gateway` 专项测试 |
+| `upstream-sync` | 多半会被上游吸收 → 冲突解决时以上游为准，删除本方条目并跑全量测试 |
+| `poweri-product` | 最贵：要么把产品能力搬进 `poweri/` 替换件，要么逐块人工合并；6 个 high 文件优先决策 |
+| `test-harness` | 跟随实现改写（jiti 动态 import 模式），不阻断 |
+| `branding` / `build-config` | 低风险，通常自动合并 |
 
 ## 跨版本教训（v0.8.6 → v0.8.8，2026-08 首迁）
 
@@ -71,7 +92,9 @@ cd .. && npm run test:unit                         # worker 10 例
 3. **工具自动改动**：`npm install` 会重写 package-lock.json（npm 版本差异加 `peer: true`）、`next dev` 会改 tsconfig.json（`.next/dev` include）——**都是自动生成物，升级后还原**（`git checkout -- web/package-lock.json web/tsconfig.json`），只保留 package.json 的依赖声明改动并登记清单。
 4. **subtree 元数据**：squash commit 树 = 上游树副本（**无 web/ 前缀**），对比用 `git ls-tree` blob sha（校验脚本已封装），不要用 `git diff <squash> HEAD -- web/`（路径过滤对无前缀侧失效，全显示 A）。
 5. **升级节奏**：小步跟进（上游 minor 版本），避免跨大版本一次迁移；每次升级前确认上游 release notes 中 API 路由变更（context/entries/state 这类新增子路由影响前端数据流）。
-6. **回退预案**：pull 合并失败 → `git merge --abort`（工作区回到升级前）；已提交发现回归 → `git revert` 该 merge commit（subtree pull 的 merge commit 可整体 revert，对象残留无害）；升级前建议 `git tag pre-upgrade-<版本>` 锚点。
+6. **登记滞后会毁掉 dry-run**：2026-09-07 的 mirror（c852ee7）把一整代自研改动带进 `web/` 但未登记，导致校验脚本 FAIL 88 条、dry-run 预测完全失真。**改动上游文件的提交必须同批更新清单**（`node scripts/validate-customizations.mjs` 应恒为 PASS）。
+7. **落后量本身是风险**：2026-10 观测本地基线 v0.8.8、上游 0.12.2，落后 21 个版本（4 个 minor）。跨 4 个 minor 一次合并的冲突面远大于"跟随发版"，升级节奏应按上游发版走。
+8. **回退预案**：pull 合并失败 → `git merge --abort`（工作区回到升级前）；已提交发现回归 → `git revert` 该 merge commit（subtree pull 的 merge commit 可整体 revert，对象残留无害）；升级前建议 `git tag pre-upgrade-<版本>` 锚点。
 
 ## 相关文件
 
